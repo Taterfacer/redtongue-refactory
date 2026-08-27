@@ -362,14 +362,14 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
 
 
 try:
-    import fcntl as _fcntl
+    import fcntl as _fcntl  # type: ignore[import-not-found]
 except ImportError:
-    _fcntl = None
+    _fcntl = None  # type: ignore[assignment]
 
 try:
-    import msvcrt as _msvcrt
+    import msvcrt as _msvcrt  # type: ignore[import-not-found]
 except ImportError:
-    _msvcrt = None
+    _msvcrt = None  # type: ignore[assignment]
 
 
 class FileLock:
@@ -793,7 +793,7 @@ class Store:
         self._lock = threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(
+        self._conn: sqlite3.Connection | None = sqlite3.connect(
             str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None
         )
         # Potato PC optimized: 2MB cache, WAL mode
@@ -816,11 +816,14 @@ class Store:
     def begin_run(self, verb: str, mode: str) -> int:
         """Starts a new forensic run and returns the run ID."""
         with self._lock:
+            if self._conn is None:
+                raise StoreError("Database connection not initialized")
             cursor = self._conn.execute(
                 "INSERT INTO runs (verb, mode, started_utc) VALUES (?, ?, ?)",
                 (verb, mode, iso_utc()),
             )
-            return cursor.lastrowid
+            rowid = cursor.lastrowid
+            return rowid if rowid is not None else 0
 
     def finalize_run(self, run_id: int, **fields: Any) -> None:
         """Finalizes a forensic run with parameterized queries.
@@ -860,6 +863,8 @@ class Store:
             # Build query with validated column names (safe due to whitelist)
             sets = ", ".join(f"{k} = ?" for k in validated_fields)
             vals = list(validated_fields.values()) + [run_id]
+            if self._conn is None:
+                raise StoreError("Database connection not initialized")
             self._conn.execute(f"UPDATE runs SET {sets} WHERE id = ?", vals)  # nosec B608 - column names validated against whitelist
             self._conn.commit()
 
@@ -868,6 +873,8 @@ class Store:
         count = 0
         created = iso_utc()
         with self._lock:
+            if self._conn is None:
+                raise StoreError("Database connection not initialized")
             cursor = self._conn.executemany(
                 "INSERT INTO issues (run_id, source, code, severity, path, "
                 "line_start, line_end, col, message, qualname, explanation, "
@@ -881,6 +888,8 @@ class Store:
     def journal(self, actor: str, action: str, detail: dict | None = None) -> None:
         """Appends an entry to the audit journal."""
         with self._lock:
+            if self._conn is None:
+                raise StoreError("Database connection not initialized")
             self._conn.execute(
                 "INSERT INTO journal (actor, action, detail, created_utc)"
                 " VALUES (?, ?, ?, ?)",
