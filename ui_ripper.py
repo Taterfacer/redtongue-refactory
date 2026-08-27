@@ -6,6 +6,7 @@ Native PyQt6 frontend for yt-dlp. Features a threaded download queue,
 drag-and-drop URL ingestion, SQLite history tracking, and
 Audio/Video mode toggling. Optimized for low-RAM environments.
 """
+
 import os
 import sqlite3
 import sys
@@ -62,11 +63,13 @@ QScrollBar::handle:vertical:hover {{ background: {C_RED}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
 """
 
+
 # ==============================================================================
 # DATABASE MANAGER
 # ==============================================================================
 class RipperDB:
     """Lightweight SQLite tracker for download history."""
+
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +90,7 @@ class RipperDB:
         with self.conn:
             self.conn.execute(
                 "INSERT INTO history (url, title, mode, fmt, status, file_path, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (url, title, mode, fmt, status, file_path, time.strftime("%Y-%m-%d %H:%M:%S"))
+                (url, title, mode, fmt, status, file_path, time.strftime("%Y-%m-%d %H:%M:%S")),
             )
 
     def get_history(self, limit: int = 50) -> list[tuple]:
@@ -98,11 +101,13 @@ class RipperDB:
         with self.conn:
             self.conn.execute("DELETE FROM history")
 
+
 # ==============================================================================
 # DOWNLOAD WORKER
 # ==============================================================================
 class YtDlpWorker(QThread):
     """Background thread for yt-dlp execution."""
+
     progress = pyqtSignal(int, str)  # percentage, status_text
     finished = pyqtSignal(bool, str, str)  # success, title, file_path
     log = pyqtSignal(str)
@@ -120,10 +125,10 @@ class YtDlpWorker(QThread):
         if self._is_cancelled:
             raise Exception("Cancelled by user")
 
-        if d['status'] == 'downloading':
-            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
-            downloaded = d.get('downloaded_bytes', 0)
-            speed = d.get('speed', 0) or 0
+        if d["status"] == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            downloaded = d.get("downloaded_bytes", 0)
+            speed = d.get("speed", 0) or 0
 
             if total > 0:
                 pct = int((downloaded / total) * 100)
@@ -133,7 +138,7 @@ class YtDlpWorker(QThread):
             speed_str = f"{speed / 1024 / 1024:.2f} MB/s" if speed > 0 else "..."
             self.progress.emit(pct, f"Downloading... {speed_str}")
 
-        elif d['status'] == 'finished':
+        elif d["status"] == "finished":
             self.progress.emit(99, "Converting...")
 
     def run(self):
@@ -142,8 +147,8 @@ class YtDlpWorker(QThread):
 
             # Deep copy opts to avoid mutation issues
             opts = dict(self.opts)
-            opts['progress_hooks'] = [self._progress_hook]
-            opts['logger'] = None # Suppress console spam
+            opts["progress_hooks"] = [self._progress_hook]
+            opts["logger"] = None  # Suppress console spam
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(self.url, download=True)
@@ -152,11 +157,11 @@ class YtDlpWorker(QThread):
                     self.finished.emit(False, "Unknown", "Failed to extract info")
                     return
 
-                title = info.get('title', 'Unknown')
+                title = info.get("title", "Unknown")
                 filepath = ydl.prepare_filename(info)
 
                 # Handle playlists
-                if 'entries' in info:
+                if "entries" in info:
                     title = f"Playlist: {title}"
 
                 self.finished.emit(True, title, filepath)
@@ -168,11 +173,13 @@ class YtDlpWorker(QThread):
                 self.log.emit(str(e))
                 self.finished.emit(False, "Error", str(e)[:100])
 
+
 # ==============================================================================
 # DOWNLOAD ITEM WIDGET
 # ==============================================================================
 class DownloadItemWidget(QFrame):
     """Custom widget representing a single download in the queue."""
+
     cancel_requested = pyqtSignal()
 
     def __init__(self, url: str, parent=None):
@@ -235,6 +242,7 @@ class DownloadItemWidget(QFrame):
                 QProgressBar {{ background-color: {C_INPUT}; border: 1px solid {C_BORDER}; border-radius: 6px; }}
                 QProgressBar::chunk {{ background-color: {C_RED}; border-radius: 6px; }}
             """)
+
 
 # ==============================================================================
 # MAIN WINDOW
@@ -348,35 +356,37 @@ class RipperWindow(QMainWindow):
         quality = self.quality_combo.currentText()
 
         opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'outtmpl': os.path.join(Path.home(), "Downloads", "RedTongue", "%(title)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "outtmpl": os.path.join(Path.home(), "Downloads", "RedTongue", "%(title)s.%(ext)s"),
         }
 
         if "Audio" in mode:
-            opts['format'] = 'bestaudio/best'
-            opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '320' if "Best" in quality else "192" if "High" in quality else "128"
-            }]
+            opts["format"] = "bestaudio/best"
+            opts["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "320" if "Best" in quality else "192" if "High" in quality else "128",
+                }
+            ]
         else:
             if "Best" in quality:
-                opts['format'] = 'bestvideo+bestaudio/best'
+                opts["format"] = "bestvideo+bestaudio/best"
             elif "High" in quality:
-                opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+                opts["format"] = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
             elif "Medium" in quality:
-                opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+                opts["format"] = "bestvideo[height<=720]+bestaudio/best[height<=720]"
             else:
-                opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]'
-            opts['merge_output_format'] = 'mp4'
+                opts["format"] = "bestvideo[height<=480]+bestaudio/best[height<=480]"
+            opts["merge_output_format"] = "mp4"
 
         if self.thumb_chk.isChecked():
-            opts.setdefault('postprocessors', []).append({'key': 'EmbedThumbnail'})
+            opts.setdefault("postprocessors", []).append({"key": "EmbedThumbnail"})
         if self.subs_chk.isChecked():
-            opts['writesubtitles'] = True
-            opts['subtitleslangs'] = ['en']
+            opts["writesubtitles"] = True
+            opts["subtitleslangs"] = ["en"]
 
         return opts
 
@@ -395,12 +405,7 @@ class RipperWindow(QMainWindow):
         self.queue_layout.insertWidget(self.queue_layout.count() - 1, item_widget)
 
         # Add to logic queue
-        task = {
-            "id": id(item_widget),
-            "url": url,
-            "widget": item_widget,
-            "opts": self._get_opts()
-        }
+        task = {"id": id(item_widget), "url": url, "widget": item_widget, "opts": self._get_opts()}
         self.download_queue.append(task)
         self._process_queue()
 
@@ -414,7 +419,9 @@ class RipperWindow(QMainWindow):
 
         worker = YtDlpWorker(task["url"], task["opts"])
         worker.progress.connect(lambda pct, txt, w=widget: w.update_progress(pct, txt))
-        worker.finished.connect(lambda ok, title, path, w=widget, u=task["url"]: self._on_finished(ok, title, path, w, u))
+        worker.finished.connect(
+            lambda ok, title, path, w=widget, u=task["url"]: self._on_finished(ok, title, path, w, u)
+        )
 
         self.active_workers[task["id"]] = worker
         widget.update_progress(0, "Starting...")
@@ -457,6 +464,7 @@ class RipperWindow(QMainWindow):
     def _load_history(self):
         # Optional: Load last 5 downloads into a log or just initialize DB
         pass
+
 
 # ==============================================================================
 # STANDALONE EXECUTION

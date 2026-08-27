@@ -5,6 +5,7 @@ Core engine layer for the RedTongue Refactory.
 Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the
 DiagnosticBrain (ONNX SmolLM) for forensic compression.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,12 +23,9 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 import requests
-
-if TYPE_CHECKING:
-    from cryptography.fernet import Fernet
 
 try:
     import numpy as _np
@@ -36,12 +34,14 @@ except ImportError:
 
 try:
     import speech_recognition as sr
+
     HAS_STT: bool = True
 except ImportError:
     HAS_STT = False
 
 try:
     import onnxruntime as ort
+
     HAS_ONNX: bool = True
 except ImportError:
     HAS_ONNX = False
@@ -92,8 +92,10 @@ def get_machine_key() -> bytes:
         identity = str(Path.home())
 
     kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(), length=32,
-        salt=MASTER_KEY_SALT, iterations=PBKDF2_ITERATIONS,
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=MASTER_KEY_SALT,
+        iterations=PBKDF2_ITERATIONS,
     )
     return base64.urlsafe_b64encode(kdf.derive(identity.encode()))
 
@@ -102,6 +104,7 @@ def encrypt_value(value: str) -> str:
     if not value:
         return value
     from cryptography.fernet import Fernet
+
     return "ENC:" + Fernet(get_machine_key()).encrypt(value.encode("utf-8")).decode("ascii")
 
 
@@ -109,6 +112,7 @@ def decrypt_value(value: str) -> str:
     if not value or not value.startswith("ENC:"):
         return value
     from cryptography.fernet import Fernet
+
     try:
         return Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
     except (ValueError, KeyError, TypeError) as e:
@@ -139,10 +143,15 @@ def load_config() -> dict[str, Any]:
             else:
                 cfg[k] = v
 
-    cfg["role_assignments"] = raw.get("role_assignments", {
-        "quick_coding": "quick_coding", "complex_coding": "complex_coding",
-        "writing": "writing", "offline_local": "offline_local",
-    })
+    cfg["role_assignments"] = raw.get(
+        "role_assignments",
+        {
+            "quick_coding": "quick_coding",
+            "complex_coding": "complex_coding",
+            "writing": "writing",
+            "offline_local": "offline_local",
+        },
+    )
     return cfg
 
 
@@ -181,6 +190,7 @@ def validate_path(path: str, workspace: str) -> Path:
     p.relative_to(ws)
     return p
 
+
 # ==============================================================================
 # Speech to Text
 # ==============================================================================
@@ -188,6 +198,7 @@ def validate_path(path: str, workspace: str) -> Path:
 
 class SpeechToText:
     """Handles audio transcription using the local microphone."""
+
     def __init__(self):
         self.recognizer = sr.Recognizer() if HAS_STT else None
         self.microphone = sr.Microphone() if HAS_STT else None
@@ -206,6 +217,7 @@ class SpeechToText:
             logger.warning(f"STT hardware error: {e}")
             return None
 
+
 # ==============================================================================
 # Diagnostic Brain (Tier 0: ONNX SmolLM)
 # ==============================================================================
@@ -213,6 +225,7 @@ class SpeechToText:
 
 class DiagnosticBrain:
     """Local ONNX SmolLM wrapper for forensic compression. Auto-downloads if missing."""
+
     MODEL_URL = "https://huggingface.co/HuggingFaceTB/smollm-135M-instruct-v0.2-onnx/resolve/main/onnx/model.onnx"
     MODEL_NAME = "smollm-135m-diagnostic.onnx"
 
@@ -229,11 +242,7 @@ class DiagnosticBrain:
 
     @property
     def status(self) -> dict:
-        return {
-            "status": self._download_status,
-            "progress": self._download_progress,
-            "loaded": self.is_ready
-        }
+        return {"status": self._download_status, "progress": self._download_progress, "loaded": self.is_ready}
 
     def ensure_model(self, progress_callback: Callable[[float], None] | None = None) -> bool:
         """Checks for model, downloads if missing. Returns True if ready."""
@@ -249,9 +258,9 @@ class DiagnosticBrain:
             tmp_path = model_path.with_suffix(".onnx.part")
             with requests.get(self.MODEL_URL, stream=True, timeout=30) as r:
                 r.raise_for_status()
-                total = int(r.headers.get('content-length', 0))
+                total = int(r.headers.get("content-length", 0))
                 downloaded = 0
-                with open(tmp_path, 'wb') as f:
+                with open(tmp_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             f.write(chunk)
@@ -294,11 +303,14 @@ class DiagnosticBrain:
             return raw_data[:1000]
         # In production: tokenize -> run ONNX -> detokenize.
         # Skeleton simulates the compressed JSON output.
-        return json.dumps({
-            "summary": "Forensic analysis complete.",
-            "critical": ["Syntax error detected", "Unresolved import"],
-            "fix": "Fix syntax on line 42 and install missing package."
-        })
+        return json.dumps(
+            {
+                "summary": "Forensic analysis complete.",
+                "critical": ["Syntax error detected", "Unresolved import"],
+                "fix": "Fix syntax on line 42 and install missing package.",
+            }
+        )
+
 
 # ==============================================================================
 # RAG (Local Vector Index)
@@ -310,14 +322,37 @@ class RAGIndex:
     CHUNK_LINES: Final[int] = 60
     SCORE_FLOOR: Final[float] = 0.02
     MAX_FILE_SIZE: Final[int] = 1_000_000
-    TEXT_EXTS: Final[frozenset[str]] = frozenset({
-        ".py", ".js", ".ts", ".html", ".css", ".md", ".txt", ".json",
-        ".yml", ".yaml", ".toml", ".sh", ".csv", ".xml", ".sql",
-    })
-    IGNORE_DIRS: Final[frozenset[str]] = frozenset({
-        "node_modules", "__pycache__", "libs", "dist", "build",
-        "site-packages", ".venv", "venv",
-    })
+    TEXT_EXTS: Final[frozenset[str]] = frozenset(
+        {
+            ".py",
+            ".js",
+            ".ts",
+            ".html",
+            ".css",
+            ".md",
+            ".txt",
+            ".json",
+            ".yml",
+            ".yaml",
+            ".toml",
+            ".sh",
+            ".csv",
+            ".xml",
+            ".sql",
+        }
+    )
+    IGNORE_DIRS: Final[frozenset[str]] = frozenset(
+        {
+            "node_modules",
+            "__pycache__",
+            "libs",
+            "dist",
+            "build",
+            "site-packages",
+            ".venv",
+            "venv",
+        }
+    )
 
     def __init__(self, workspace: str) -> None:
         self.workspace = Path(workspace)
@@ -333,7 +368,9 @@ class RAGIndex:
             logger.info(f"RAG loaded: {len(self._chunks)} chunks.")
         else:
             threading.Thread(
-                target=self._safe_reindex, daemon=True, name="rag-reindex",
+                target=self._safe_reindex,
+                daemon=True,
+                name="rag-reindex",
             ).start()
 
     def _try_load(self) -> bool:
@@ -361,10 +398,16 @@ class RAGIndex:
         try:
             self.index_dir.mkdir(parents=True, exist_ok=True)
             (self.index_dir / "chunks.json").write_text(
-                json.dumps(self._chunks), encoding="utf-8",
+                json.dumps(self._chunks),
+                encoding="utf-8",
             )
-            matrix = self._matrix if self._matrix is not None else _np.zeros(
-                (0, self.DIM), dtype=_np.float32,
+            matrix = (
+                self._matrix
+                if self._matrix is not None
+                else _np.zeros(
+                    (0, self.DIM),
+                    dtype=_np.float32,
+                )
             )
             _np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
         except (OSError, ValueError) as e:
@@ -386,10 +429,7 @@ class RAGIndex:
 
     def _iter_workspace_files(self):
         for root, dirs, files in os.walk(self.workspace):
-            dirs[:] = [
-                d for d in dirs
-                if not d.startswith(".") and d not in self.IGNORE_DIRS
-            ]
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in self.IGNORE_DIRS]
             for fname in files:
                 p = Path(root) / fname
                 if p.suffix.lower() not in self.TEXT_EXTS or is_sensitive_path(p):
@@ -410,7 +450,7 @@ class RAGIndex:
             return []
         chunks = []
         for start in range(0, len(lines), self.CHUNK_LINES):
-            piece = "\n".join(lines[start:start + self.CHUNK_LINES]).strip()
+            piece = "\n".join(lines[start : start + self.CHUNK_LINES]).strip()
             if piece:
                 chunks.append({"path": rel, "text": piece, "line": start + 1})
         return chunks
@@ -460,11 +500,13 @@ class RAGIndex:
                     if s <= self.SCORE_FLOOR:
                         continue
                     c = self._chunks[int(i)]
-                    hits.append({
-                        "path": c.get("path", "unknown"),
-                        "text": c.get("text", ""),
-                        "score": round(s, 4),
-                    })
+                    hits.append(
+                        {
+                            "path": c.get("path", "unknown"),
+                            "text": c.get("text", ""),
+                            "score": round(s, 4),
+                        }
+                    )
                 return hits
             except (ValueError, RuntimeError, AttributeError):
                 return []
@@ -477,6 +519,7 @@ class RAGIndex:
             self._matrix = None
             self._chunks = []
 
+
 # ==============================================================================
 # TTS (Kokoro)
 # ==============================================================================
@@ -485,12 +528,10 @@ class RAGIndex:
 class KokoroTTS:
     ASSETS: Final[dict[str, str]] = {
         "kokoro-v1.0.onnx": (
-            "https://github.com/thewh1teagle/kokoro-onnx/releases"
-            "/download/model-files/kokoro-v1.0.onnx"
+            "https://github.com/thewh1teagle/kokoro-onnx/releases" "/download/model-files/kokoro-v1.0.onnx"
         ),
         "voices-v1.0.bin": (
-            "https://github.com/thewh1teagle/kokoro-onnx/releases"
-            "/download/model-files/voices-v1.0.bin"
+            "https://github.com/thewh1teagle/kokoro-onnx/releases" "/download/model-files/voices-v1.0.bin"
         ),
     }
     VOICE_ALIASES: Final[dict[str, str]] = {"af": "af-heart", "am": "am-adam", "bf": "bf-emma", "bm": "bm-george"}
@@ -530,6 +571,7 @@ class KokoroTTS:
                 if not (self._download("kokoro-v1.0.onnx") and self._download("voices-v1.0.bin")):
                     raise RuntimeError(f"TTS models missing. Place in: {self.models_dir}")
             from kokoro_onnx import Kokoro
+
             logger.info("Loading Kokoro TTS...")
             self._engine = Kokoro(str(onnx_path), str(voices_path))
             return self._engine
@@ -573,6 +615,7 @@ class KokoroTTS:
         def _synth() -> bytes:
             import numpy as np
             import soundfile as sf
+
             engine = self._ensure_engine()
             last_err: BaseException | None = None
             for cand in self._voice_candidates(voice):
@@ -592,11 +635,13 @@ class KokoroTTS:
                     last_err = e
                     continue
             raise RuntimeError(f"TTS failed: {last_err}")
+
         try:
             wav = await asyncio.to_thread(_synth)
             return wav, "ok"
         except (RuntimeError, OSError) as e:
             return None, str(e)
+
 
 # ==============================================================================
 # ToolLayer
@@ -665,10 +710,7 @@ class ToolLayer:
         try:
             results: list[str] = []
             for root, dirs, files in os.walk(p):
-                dirs[:] = [
-                    d for d in dirs
-                    if not d.startswith(".") and d not in RAGIndex.IGNORE_DIRS
-                ]
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in RAGIndex.IGNORE_DIRS]
                 for f in files:
                     rel = os.path.relpath(os.path.join(root, f), self.workspace)
                     if is_sensitive_path(Path(rel)):
@@ -688,15 +730,18 @@ class ToolLayer:
             return {"status": "error", "error": f"Not found: {path}"}
         try:
             proc = subprocess.run(
-                [sys.executable, str(p)], capture_output=True, text=True,
-                cwd=self.workspace, timeout=self.EXEC_TIMEOUT,
+                [sys.executable, str(p)],
+                capture_output=True,
+                text=True,
+                cwd=self.workspace,
+                timeout=self.EXEC_TIMEOUT,
             )
             out = proc.stdout or ""
             if proc.stderr:
                 out += "\n[stderr]\n" + proc.stderr
             return {
                 "status": "success" if proc.returncode == 0 else "error",
-                "output": out.strip()[:self.MAX_OUTPUT] or "(no output)",
+                "output": out.strip()[: self.MAX_OUTPUT] or "(no output)",
                 "returncode": proc.returncode,
             }
         except subprocess.TimeoutExpired:
@@ -712,13 +757,17 @@ class ToolLayer:
             return {"status": "error", "error": "Blocked: destructive pattern."}
         try:
             proc = subprocess.run(
-                command, shell=True, capture_output=True, text=True,
-                cwd=self.workspace, timeout=self.EXEC_TIMEOUT,
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=self.workspace,
+                timeout=self.EXEC_TIMEOUT,
             )
             output = (proc.stdout or "") + (proc.stderr or "")
             return {
                 "status": "success" if proc.returncode == 0 else "error",
-                "output": output.strip()[:self.MAX_OUTPUT] or "(no output)",
+                "output": output.strip()[: self.MAX_OUTPUT] or "(no output)",
                 "returncode": proc.returncode,
             }
         except subprocess.TimeoutExpired:
@@ -735,11 +784,13 @@ class ToolLayer:
             results = []
             with DDGS() as ddgs:
                 for r in ddgs.text(query, max_results=5):
-                    results.append({
-                        "title": r.get("title", ""),
-                        "url": r.get("href", r.get("url", "")),
-                        "snippet": (r.get("body") or "")[:self.MAX_SNIPPET],
-                    })
+                    results.append(
+                        {
+                            "title": r.get("title", ""),
+                            "url": r.get("href", r.get("url", "")),
+                            "snippet": (r.get("body") or "")[: self.MAX_SNIPPET],
+                        }
+                    )
             return {"status": "success", "output": results}
         except (ImportError, ConnectionError, RuntimeError) as e:
             return {"status": "error", "error": f"Search: {e}"}
@@ -752,10 +803,11 @@ class ToolLayer:
             r.raise_for_status()
             if "html" in r.headers.get("content-type", "").lower():
                 from bs4 import BeautifulSoup
+
                 text = BeautifulSoup(r.text, "html.parser").get_text(separator="\n", strip=True)
             else:
                 text = r.text
-            return {"status": "success", "output": text[:self.MAX_FETCH_OUTPUT]}
+            return {"status": "success", "output": text[: self.MAX_FETCH_OUTPUT]}
         except requests.RequestException as e:
             return {"status": "error", "error": f"Fetch: {e}"}
 
@@ -799,6 +851,7 @@ class ToolLayer:
         except (ValueError, TypeError) as e:
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
+
 # ==============================================================================
 # Failover Stack
 # ==============================================================================
@@ -821,12 +874,16 @@ class FailoverEntry:
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name, "provider": self.provider, "base_url": self.base_url,
-            "model": self.model, "priority": self.priority, "dead": self.dead,
+            "name": self.name,
+            "provider": self.provider,
+            "base_url": self.base_url,
+            "model": self.model,
+            "priority": self.priority,
+            "dead": self.dead,
             "error_count": self.error_count,
             "cooldown_until": self.cooldown_until,
             "cooldown_remaining": max(0.0, round(self.cooldown_until - time.time(), 1)),
-            "last_error": self.last_error[:self.MAX_ERROR_LEN],
+            "last_error": self.last_error[: self.MAX_ERROR_LEN],
         }
 
 
@@ -846,8 +903,10 @@ class FailoverStack:
         role_assignments = cfg.get("role_assignments", {})
         if not role_assignments:
             role_assignments = {
-                "quick_coding": "quick_coding", "complex_coding": "complex_coding",
-                "writing": "writing", "offline_local": "offline_local",
+                "quick_coding": "quick_coding",
+                "complex_coding": "complex_coding",
+                "writing": "writing",
+                "offline_local": "offline_local",
             }
         priorities = {"quick_coding": 0, "complex_coding": 1, "writing": 2, "offline_local": 10}
         for role, preset_name in role_assignments.items():
@@ -858,10 +917,16 @@ class FailoverStack:
             api_key = api_keys.get(provider, "")
             if provider == "ollama":
                 api_key = "ollama"
-            entries.append(FailoverEntry(
-                name=role, provider=provider, base_url=preset["base_url"],
-                api_key=api_key, model=preset["model_id"], priority=priorities.get(role, 5),
-            ))
+            entries.append(
+                FailoverEntry(
+                    name=role,
+                    provider=provider,
+                    base_url=preset["base_url"],
+                    api_key=api_key,
+                    model=preset["model_id"],
+                    priority=priorities.get(role, 5),
+                )
+            )
         return cls(entries)
 
     def ordered(self) -> list[FailoverEntry]:
@@ -901,9 +966,11 @@ class FailoverStack:
 
     def to_dict(self) -> dict:
         return {
-            "active": len(self.ordered()), "total": len(self.entries),
+            "active": len(self.ordered()),
+            "total": len(self.entries),
             "entries": [e.to_dict() for e in sorted(self.entries, key=lambda x: x.priority)],
         }
+
 
 # ==============================================================================
 # AgentSwarm
@@ -912,25 +979,107 @@ class FailoverStack:
 
 class AgentSwarm:
     TOOL_SPECS = [
-        {"type": "function", "function": {"name": "list_directory", "description": "List files.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Sub-dir"}}, "required": []}}},
-        {"type": "function", "function": {"name": "read_file", "description": "Read file.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path"}}, "required": ["path"]}}},
-        {"type": "function", "function": {"name": "write_file", "description": "Write file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string", "description": "Full content"}}, "required": ["path", "content"]}}},
-        {"type": "function", "function": {"name": "run_python", "description": "Run .py file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-        {"type": "function", "function": {"name": "run_shell", "description": "Run shell cmd.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
-        {"type": "function", "function": {"name": "search_web", "description": "Search web.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-        {"type": "function", "function": {"name": "fetch_url", "description": "Fetch URL.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
-        {"type": "function", "function": {"name": "run_forensic_lint", "description": "Run lintstack and compress via local brain.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-        {"type": "function", "function": {"name": "analyze_crash_dump", "description": "Compress traceback via local brain.", "parameters": {"type": "object", "properties": {"stderr": {"type": "string"}}, "required": ["stderr"]}}},
+        {
+            "type": "function",
+            "function": {
+                "name": "list_directory",
+                "description": "List files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string", "description": "Sub-dir"}},
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read file.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string", "description": "Path"}},
+                    "required": ["path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": "Write file.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string", "description": "Full content"},
+                    },
+                    "required": ["path", "content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_python",
+                "description": "Run .py file.",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_shell",
+                "description": "Run shell cmd.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"command": {"type": "string"}},
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search web.",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fetch_url",
+                "description": "Fetch URL.",
+                "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_forensic_lint",
+                "description": "Run lintstack and compress via local brain.",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "analyze_crash_dump",
+                "description": "Compress traceback via local brain.",
+                "parameters": {"type": "object", "properties": {"stderr": {"type": "string"}}, "required": ["stderr"]},
+            },
+        },
     ]
     SYSTEM_PROMPT = (
         'You are "Red Tongue", the primary agent of a local-first AI coding studio. '
-        'You operate directly inside the user\'s live workspace with real tools.\n\n'
-        'WORKSPACE RULES:\n- Paths relative to root.\n- Inspect before editing.\n'
-        '- write_file gets COMPLETE content.\n- Keep shell usage safe.\n\n'
-        'TOOLS: list_directory, read_file, write_file, run_python, run_shell, '
-        'search_web, fetch_url, run_forensic_lint, analyze_crash_dump.\n\n'
-        'BEHAVIOUR:\n- Think briefly, then act.\n- Summarise changes.\n'
-        '- Refuse unsafe requests.\n\nOUTPUT: Concise, technical, Markdown.'
+        "You operate directly inside the user's live workspace with real tools.\n\n"
+        "WORKSPACE RULES:\n- Paths relative to root.\n- Inspect before editing.\n"
+        "- write_file gets COMPLETE content.\n- Keep shell usage safe.\n\n"
+        "TOOLS: list_directory, read_file, write_file, run_python, run_shell, "
+        "search_web, fetch_url, run_forensic_lint, analyze_crash_dump.\n\n"
+        "BEHAVIOUR:\n- Think briefly, then act.\n- Summarise changes.\n"
+        "- Refuse unsafe requests.\n\nOUTPUT: Concise, technical, Markdown."
     )
 
     def __init__(self, tool_layer: ToolLayer, failover_config: FailoverStack | None = None) -> None:
@@ -952,7 +1101,10 @@ class AgentSwarm:
                 continue
             try:
                 self._clients[entry.name] = AsyncOpenAI(
-                    api_key=entry.api_key, base_url=entry.base_url, timeout=90.0, max_retries=0,
+                    api_key=entry.api_key,
+                    base_url=entry.base_url,
+                    timeout=90.0,
+                    max_retries=0,
                 )
             except (ValueError, TypeError) as e:
                 logger.warning(f"Client init '{entry.name}': {e}")
@@ -961,7 +1113,9 @@ class AgentSwarm:
         self.failover = FailoverStack.load_config()
         self.reset_clients()
 
-    def _build_messages(self, message: str, history: list | None, rag_context: str, custom_system_prompt: str = "") -> list[dict]:
+    def _build_messages(
+        self, message: str, history: list | None, rag_context: str, custom_system_prompt: str = ""
+    ) -> list[dict]:
         sys_content = self.SYSTEM_PROMPT
         if custom_system_prompt and custom_system_prompt.strip():
             sys_content = custom_system_prompt.strip()
@@ -969,7 +1123,8 @@ class AgentSwarm:
         if rag_context and rag_context.strip():
             msgs.append({"role": "system", "content": "RAG context:\n\n" + rag_context})
         hist = [
-            m for m in (history or [])
+            m
+            for m in (history or [])
             if isinstance(m, dict) and m.get("role") in ("user", "assistant") and m.get("content")
         ]
         if hist and hist[-1].get("role") == "user" and str(hist[-1].get("content", "")).strip() == str(message).strip():
@@ -978,7 +1133,17 @@ class AgentSwarm:
         msgs.append({"role": "user", "content": message})
         return msgs
 
-    async def run_main_agent(self, message: str, history: list | None = None, autopilot: bool = True, effort: str = "medium", response_queue=None, rag_context: str = "", disable_tools: bool = False, custom_system_prompt: str = ""):
+    async def run_main_agent(
+        self,
+        message: str,
+        history: list | None = None,
+        autopilot: bool = True,
+        effort: str = "medium",
+        response_queue=None,
+        rag_context: str = "",
+        disable_tools: bool = False,
+        custom_system_prompt: str = "",
+    ):
         message = (message or "").strip()
         if not message:
             yield json.dumps({"type": "error", "content": "Empty message."})
@@ -1050,7 +1215,13 @@ class AgentSwarm:
             if tool_calls:
                 calls = []
                 for i, tc in sorted(tool_calls.items()):
-                    calls.append({"id": tc["id"] or f"call_{i}", "type": "function", "function": {"name": tc["name"] or "unknown", "arguments": tc["arguments"] or "{}"}})
+                    calls.append(
+                        {
+                            "id": tc["id"] or f"call_{i}",
+                            "type": "function",
+                            "function": {"name": tc["name"] or "unknown", "arguments": tc["arguments"] or "{}"},
+                        }
+                    )
                 messages.append({"role": "assistant", "content": full_text or None, "tool_calls": calls})
                 for call in calls:
                     name = call["function"]["name"]

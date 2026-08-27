@@ -4,31 +4,38 @@ main.py
 Entry point for the RedTongue Refactory suite.
 Handles dependency bootstrapping, logging, splash screen, and application launch.
 """
+
+from __future__ import annotations
+
 import logging
 import subprocess
 import sys
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PyQt6.QtWidgets import QApplication, QSplashScreen
 
 # ==============================================================================
 # CONSTANTS & PATHS
 # ==============================================================================
-APP_NAME = "RedTongue Refactory"
-APP_VERSION = "4.0.0"
-BASE_DIR = Path(__file__).resolve().parent
-LOG_DIR = BASE_DIR / "logs"
+APP_NAME: str = "RedTongue Refactory"
+APP_VERSION: str = "4.0.0"
+BASE_DIR: Path = Path(__file__).resolve().parent
+LOG_DIR: Path = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 # Core dependencies required before PyQt6 can be imported
-CORE_PACKAGES = {
+CORE_PACKAGES: dict[str, str] = {
     "PyQt6": "PyQt6",
     "requests": "requests",
     "cryptography": "cryptography",
 }
 
 # Runtime dependencies (checked after PyQt6 is loaded)
-RUNTIME_PACKAGES = {
+RUNTIME_PACKAGES: dict[str, str] = {
     "numpy": "numpy",
     "psutil": "psutil",
     "speech_recognition": "SpeechRecognition",
@@ -39,6 +46,8 @@ RUNTIME_PACKAGES = {
 # ==============================================================================
 # LOGGING SETUP
 # ==============================================================================
+
+
 def setup_logging() -> logging.Logger:
     """Configures root logger with file and stream handlers."""
     logger = logging.getLogger("RedTongue")
@@ -46,9 +55,7 @@ def setup_logging() -> logging.Logger:
 
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-    fh = RotatingFileHandler(
-        LOG_DIR / "refactory.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8"
-    )
+    fh = RotatingFileHandler(LOG_DIR / "refactory.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
 
@@ -60,7 +67,9 @@ def setup_logging() -> logging.Logger:
     logger.addHandler(sh)
     return logger
 
+
 logger = setup_logging()
+
 
 # ==============================================================================
 # DEPENDENCY BOOTSTRAPPING
@@ -71,18 +80,19 @@ def pip_install(packages: list[str]) -> bool:
         return True
     cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + packages
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         logger.error("pip install timed out.")
         return False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"pip install failed: {e}")
         return False
 
+
 def bootstrap_core() -> None:
     """Installs core dependencies required for the GUI to launch."""
-    missing = []
+    missing: list[str] = []
     for module, package in CORE_PACKAGES.items():
         try:
             __import__(module)
@@ -95,9 +105,10 @@ def bootstrap_core() -> None:
             logger.critical("Failed to install core dependencies. Exiting.")
             sys.exit(1)
 
+
 def check_runtime_deps() -> None:
     """Checks and installs optional runtime dependencies in background."""
-    missing = []
+    missing: list[str] = []
     for module, package in RUNTIME_PACKAGES.items():
         try:
             __import__(module)
@@ -110,10 +121,11 @@ def check_runtime_deps() -> None:
         # to install them without blocking the UI.
         # pip_install(missing)
 
+
 # ==============================================================================
 # SPLASH SCREEN
 # ==============================================================================
-def create_splash(app) -> "QSplashScreen":
+def create_splash(app: "QApplication") -> "QSplashScreen":
     """Creates and returns the Blood & Void themed splash screen."""
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
@@ -144,10 +156,9 @@ def create_splash(app) -> "QSplashScreen":
     painter.end()
 
     splash = QSplashScreen(pixmap)
-    splash.setWindowFlags(
-        Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
-    )
+    splash.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
     return splash
+
 
 # ==============================================================================
 # MAIN EXECUTION
@@ -165,9 +176,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
-    app.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
+    app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
     # 4. Show Splash Screen
     splash = create_splash(app)
@@ -181,19 +190,19 @@ def main() -> None:
     # 6. Launch Main UI
     try:
         from ui_main import RefactoryMainWindow
+
         window = RefactoryMainWindow()
         window.show()
         splash.finish(window)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         splash.close()
         logger.critical(f"Failed to initialize UI: {e}", exc_info=True)
-        QMessageBox.critical(
-            None, "Fatal Error", f"Failed to initialize UI:\n\n{e}"
-        )
+        QMessageBox.critical(None, "Fatal Error", f"Failed to initialize UI:\n\n{e}")
         sys.exit(1)
 
     # 7. Start Event Loop
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

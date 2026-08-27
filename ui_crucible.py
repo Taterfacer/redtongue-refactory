@@ -5,6 +5,7 @@ RedTongue Crucible - Native PyQt6 Compiler Deck.
 Compiles Python scripts into standalone executables via Nuitka.
 English-only, optimized for low-RAM environments.
 """
+
 import ast
 import json
 import os
@@ -58,31 +59,42 @@ C_ERROR = "#ff4444"
 
 LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAACXBIWXMAAAsTAAALEwEAmpwYAAAB+0lEQVR4nO2du04DQRRFz0zGBhMTgxMT8QUTw0Ij0BgTgxMT8QUTwyJiwkagMTqJhYnFRMbGBhOTsBGTsBGTsI2NjS2Nf4nO3Tk7OzvbXf+8F3l3c3bvr5VyuZwzhJ2EhISEhISEhISEhISEhISEhISEhISEhISEhITkQOYD4CHQDqgFtgB3A0vcAt4BzWqV/wN/ASVAy3QNzAG1QD/wE2gCdYDzYD3wGzAd1AOjYBdwBfSrdIUYE2gGPgNLIAbYD2wQxXwlRyAu+AvUAW/AYaAZaAG2A8eBT8B6YD6wHFWwAF+B+uA5cAw0R51eAh3Aj8BSPRYetExOoD1OoT0+gBeYAi3AJbAH/ATj2QAPcRl2JJ3D/IlrKZ1uCcy7LfQJXtFqXgU+cdEN+Ar8ABVgMfgDvI4KZ0Q64BqqwQpUw5aB01TCvCdWSrnCdpBdwBHwb+S3/AQ+AyqJwFk4D5Wq0W3Mf1XN1V4A9Q8DPwNVAcZiQ7Bv4HSoDfQRf2Gf8Ql9T4Gd4/8vgj5j/ASSEhISEhISEhISEhISEhISEhISEhISEhISEhISA3IM8uen/Egnku1AAAAAElFTkSuQmCC"
 
+
 # =============================================================================
 # UTILITY & STYLING
 # =============================================================================
 def get_resource_path(filename):
-    if "__compiled__" in globals() or hasattr(sys, 'frozen'):
+    if "__compiled__" in globals() or hasattr(sys, "frozen"):
         local_path = Path(sys.executable).parent / filename
         if local_path.exists():
             return local_path
     base_path = Path(__file__).parent.resolve()
     return base_path / filename
 
+
 def load_redtongue_logo(target_size=200):
     local_logo = get_resource_path("crucible_logo.png")
     if local_logo.exists():
         pixmap = QPixmap(str(local_logo))
         if not pixmap.isNull():
-            return pixmap.scaled(target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            return pixmap.scaled(
+                target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
     pixmap = QPixmap()
     pixmap.loadFromData(QByteArray.fromBase64(LOGO_B64.encode()))
-    return pixmap.scaled(target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    return pixmap.scaled(
+        target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+
 
 def format_size(size_bytes):
-    if size_bytes < 1024: return f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024: return f"{size_bytes / 1024:.1f} KB"
-    else: return f"{size_bytes / (1024 * 1024):.2f} MB"
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+
 
 class SectionCard(QFrame):
     def __init__(self, number, title, parent=None):
@@ -113,8 +125,12 @@ class SectionCard(QFrame):
         self.content_layout.setSpacing(8)
         layout.addWidget(self.content)
 
-    def addWidget(self, widget): self.content_layout.addWidget(widget)
-    def addLayout(self, layout): self.content_layout.addLayout(layout)
+    def addWidget(self, widget):
+        self.content_layout.addWidget(widget)
+
+    def addLayout(self, layout):
+        self.content_layout.addLayout(layout)
+
 
 class SmartLogOutput(QTextEdit):
     def __init__(self, parent=None):
@@ -148,6 +164,7 @@ class SmartLogOutput(QTextEdit):
         if at_bottom:
             scrollbar.setValue(scrollbar.maximum())
 
+
 class DataDropList(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -165,22 +182,30 @@ class DataDropList(QListWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 2px dashed {C_RED}; border-radius: 4px; padding: 4px; font-size: 12px; }}")
+            self.setStyleSheet(
+                f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 2px dashed {C_RED}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
+            )
         else:
             event.ignore()
 
     def dragLeaveEvent(self, event):
-        self.setStyleSheet(f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}")
+        self.setStyleSheet(
+            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
+        )
 
     def dropEvent(self, event):
-        self.setStyleSheet(f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}")
-        if not self.main_window: return
+        self.setStyleSheet(
+            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
+        )
+        if not self.main_window:
+            return
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if os.path.isfile(path):
                 self.main_window.add_data_file(path)
             elif os.path.isdir(path):
                 self.main_window.add_data_dir(path)
+
 
 # =============================================================================
 # WORKER THREAD
@@ -208,8 +233,10 @@ class NuitkaBuildThread(QThread):
 
             self.progress.emit(5, "Checking tools...")
             try:
-                result = subprocess.run([self.python_exe, "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=30)
-                version = result.stdout.strip().split('\n')[0]
+                result = subprocess.run(
+                    [self.python_exe, "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=30
+                )
+                version = result.stdout.strip().split("\n")[0]
                 self.output.emit(f"  Nuitka version: {version}", "success")
             except Exception as e:
                 self.output.emit(f"  ERROR: Nuitka not found: {e}", "error")
@@ -224,10 +251,14 @@ class NuitkaBuildThread(QThread):
             self.progress.emit(15, "Building instructions...")
             cmd = [self.python_exe, "-m", "nuitka", "--standalone", "--onefile"]
 
-            if self.options.get("tkinter"): cmd.append("--enable-plugin=tk-inter")
-            if self.options.get("pyqt6"): cmd.append("--enable-plugin=pyqt6")
-            if self.options.get("lto"): cmd.append("--lto=yes")
-            if self.options.get("remove_build"): cmd.append("--remove-output")
+            if self.options.get("tkinter"):
+                cmd.append("--enable-plugin=tk-inter")
+            if self.options.get("pyqt6"):
+                cmd.append("--enable-plugin=pyqt6")
+            if self.options.get("lto"):
+                cmd.append("--lto=yes")
+            if self.options.get("remove_build"):
+                cmd.append("--remove-output")
 
             jobs = self.options.get("jobs", 0)
             if jobs > 0:
@@ -265,8 +296,10 @@ class NuitkaBuildThread(QThread):
                 cmd.append(f"--nofollow-import-to={pkg}")
                 self.output.emit(f"  Excluding module: {pkg}", "info")
 
-            if self.options.get("follow_imports", True): cmd.append("--follow-imports")
-            if sys.platform == "win32" and self.options.get("windowed", True): cmd.append("--windows-disable-console")
+            if self.options.get("follow_imports", True):
+                cmd.append("--follow-imports")
+            if sys.platform == "win32" and self.options.get("windowed", True):
+                cmd.append("--windows-disable-console")
 
             if self.options.get("upx"):
                 upx_binary = self.ensure_upx()
@@ -283,26 +316,37 @@ class NuitkaBuildThread(QThread):
             self.progress.emit(20, "Compiling executable...")
             kwargs = {}
             if sys.platform == "win32":
-                kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             else:
-                kwargs['start_new_session'] = True
+                kwargs["start_new_session"] = True
 
             self.process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, universal_newlines=True,
-                cwd=str(self.output_dir), **kwargs
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                cwd=str(self.output_dir),
+                **kwargs,
             )
 
             for line in self.process.stdout:
-                if self._kill: break
+                if self._kill:
+                    break
                 line = line.rstrip()
-                if not line: continue
+                if not line:
+                    continue
 
                 lower = line.lower()
-                if "error" in lower or "failed" in lower: level = "error"
-                elif "warning" in lower: level = "warning"
-                elif "success" in lower or "created" in lower: level = "success"
-                else: level = "dim"
+                if "error" in lower or "failed" in lower:
+                    level = "error"
+                elif "warning" in lower:
+                    level = "warning"
+                elif "success" in lower or "created" in lower:
+                    level = "success"
+                else:
+                    level = "dim"
 
                 self.output.emit(f"  {line}", level)
 
@@ -310,7 +354,8 @@ class NuitkaBuildThread(QThread):
                     try:
                         pct = int(line.split("%")[0].strip().split()[-1])
                         self.progress.emit(max(20, min(pct, 95)), "Compiling...")
-                    except: pass
+                    except:
+                        pass
 
             if self._kill:
                 self.output.emit("  BUILD CANCELLED BY USER", "error")
@@ -359,22 +404,24 @@ class NuitkaBuildThread(QThread):
 
         zip_path = upx_dir / "upx_download.zip"
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'RedTongue Crucible'})
-            with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
+            req = urllib.request.Request(url, headers={"User-Agent": "RedTongue Crucible"})
+            with urllib.request.urlopen(req) as response, open(zip_path, "wb") as out_file:
                 out_file.write(response.read())
 
             self.output.emit("  Extracting UPX...", "info")
             if url.endswith(".zip"):
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(upx_dir)
             else:
                 import tarfile
-                with tarfile.open(zip_path, 'r:xz') as tar_ref:
+
+                with tarfile.open(zip_path, "r:xz") as tar_ref:
                     tar_ref.extractall(upx_dir)
             os.remove(zip_path)
 
             for file in upx_dir.rglob(exe_name):
-                if sys.platform != "win32": os.chmod(file, 0o755)
+                if sys.platform != "win32":
+                    os.chmod(file, 0o755)
                 self.output.emit("  UPX installed successfully.", "success")
                 return str(file)
         except Exception as e:
@@ -382,32 +429,39 @@ class NuitkaBuildThread(QThread):
             return None
 
     def prepare_icon(self):
-        if not self.icon_path: return None
+        if not self.icon_path:
+            return None
         source = Path(self.icon_path)
-        if not source.exists(): return None
+        if not source.exists():
+            return None
 
         temp_dir = Path(tempfile.gettempdir()) / "redtongue_icons"
         temp_dir.mkdir(exist_ok=True)
 
         if sys.platform == "win32":
-            if source.suffix.lower() == '.ico': return str(source)
+            if source.suffix.lower() == ".ico":
+                return str(source)
             ico_path = temp_dir / f"{source.stem}_converted.ico"
             try:
                 from PIL import Image
+
                 img = Image.open(source)
-                if img.mode != 'RGBA': img = img.convert('RGBA')
-                img.save(ico_path, format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+                if img.mode != "RGBA":
+                    img = img.convert("RGBA")
+                img.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
                 return str(ico_path)
             except Exception as e:
                 self.output.emit(f"  Icon conversion failed: {e}", "warning")
                 return None
         else:
-            if source.suffix.lower() == '.png': return str(source)
+            if source.suffix.lower() == ".png":
+                return str(source)
             png_path = temp_dir / f"{source.stem}_converted.png"
             try:
                 from PIL import Image
-                img = Image.open(source).convert('RGBA' if img.mode == 'RGBA' else 'RGB')
-                img.save(png_path, 'PNG')
+
+                img = Image.open(source).convert("RGBA" if img.mode == "RGBA" else "RGB")
+                img.save(png_path, "PNG")
                 return str(png_path)
             except Exception as e:
                 self.output.emit(f"  Icon conversion failed: {e}", "warning")
@@ -426,6 +480,7 @@ class NuitkaBuildThread(QThread):
                     self.process.kill()
             except Exception:
                 pass
+
 
 # =============================================================================
 # MAIN WINDOW
@@ -500,7 +555,9 @@ class CrucibleWindow(QMainWindow):
         self.script_edit.setPlaceholderText("Drag and drop your .py file here, or click Browse...")
         self.script_edit.setReadOnly(True)
         self.script_edit.setMinimumHeight(40)
-        self.script_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px; font-size: 13px; }}")
+        self.script_edit.setStyleSheet(
+            f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px; font-size: 13px; }}"
+        )
         self.script_edit.mousePressEvent = lambda e: self.browse_script()
         self.script_edit.setAcceptDrops(True)
         self.script_edit.dragEnterEvent = self.script_drag_enter
@@ -509,7 +566,9 @@ class CrucibleWindow(QMainWindow):
 
         browse_btn = QPushButton("Browse")
         browse_btn.setMinimumHeight(40)
-        browse_btn.setStyleSheet(f"QPushButton {{ background-color: {C_RED}; color: {C_WHITE}; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_RED_HOVER}; }}")
+        browse_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_RED}; color: {C_WHITE}; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_RED_HOVER}; }}"
+        )
         browse_btn.clicked.connect(self.browse_script)
         script_input_layout.addWidget(browse_btn)
         script_card.addLayout(script_input_layout)
@@ -523,13 +582,17 @@ class CrucibleWindow(QMainWindow):
         self.env_edit = QLineEdit()
         self.env_edit.setText(sys.executable)
         self.env_edit.setMinimumHeight(32)
-        self.env_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}")
+        self.env_edit.setStyleSheet(
+            f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}"
+        )
         env_layout.addWidget(self.env_edit, 1)
 
         env_browse_btn = QPushButton("...")
         env_browse_btn.setFixedSize(32, 32)
         env_browse_btn.setToolTip("Leave this as-is if unsure. Only change it if you use Virtual Environments (venv).")
-        env_browse_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; }}")
+        env_browse_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; }}"
+        )
         env_browse_btn.clicked.connect(self.browse_env)
         env_layout.addWidget(env_browse_btn)
         script_card.addLayout(env_layout)
@@ -542,7 +605,9 @@ class CrucibleWindow(QMainWindow):
         self.icon_edit.setPlaceholderText("Drag and drop an image here, or click Browse...")
         self.icon_edit.setReadOnly(True)
         self.icon_edit.setMinimumHeight(40)
-        self.icon_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px; font-size: 13px; }}")
+        self.icon_edit.setStyleSheet(
+            f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px; font-size: 13px; }}"
+        )
         self.icon_edit.mousePressEvent = lambda e: self.browse_icon()
         self.icon_edit.setAcceptDrops(True)
         self.icon_edit.dragEnterEvent = self.icon_drag_enter
@@ -551,7 +616,9 @@ class CrucibleWindow(QMainWindow):
 
         icon_browse_btn = QPushButton("Browse")
         icon_browse_btn.setMinimumHeight(40)
-        icon_browse_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
+        icon_browse_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}"
+        )
         icon_browse_btn.clicked.connect(self.browse_icon)
         icon_input_layout.addWidget(icon_browse_btn)
         icon_card.addLayout(icon_input_layout)
@@ -567,31 +634,41 @@ class CrucibleWindow(QMainWindow):
         data_btn_layout = QVBoxLayout()
         auto_scan_btn = QPushButton("✨ Auto-Scan Script")
         auto_scan_btn.setMinimumHeight(32)
-        auto_scan_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: #4DA6FF; border: 1px solid #4DA6FF; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: #4DA6FF; color: black; }}")
+        auto_scan_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: #4DA6FF; border: 1px solid #4DA6FF; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: #4DA6FF; color: black; }}"
+        )
         auto_scan_btn.clicked.connect(self.auto_scan_for_files)
         data_btn_layout.addWidget(auto_scan_btn)
 
         add_data_btn = QPushButton("Add File")
         add_data_btn.setMinimumHeight(32)
-        add_data_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
+        add_data_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}"
+        )
         add_data_btn.clicked.connect(lambda: self.add_data_file())
         data_btn_layout.addWidget(add_data_btn)
 
         add_dir_btn = QPushButton("Add Folder")
         add_dir_btn.setMinimumHeight(32)
-        add_dir_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
+        add_dir_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}"
+        )
         add_dir_btn.clicked.connect(lambda: self.add_data_dir())
         data_btn_layout.addWidget(add_dir_btn)
 
         rm_data_btn = QPushButton("Remove")
         rm_data_btn.setMinimumHeight(32)
-        rm_data_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_ERROR}; color: {C_WHITE}; }}")
+        rm_data_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_ERROR}; color: {C_WHITE}; }}"
+        )
         rm_data_btn.clicked.connect(self.remove_data_item)
         data_btn_layout.addWidget(rm_data_btn)
 
         copy_code_btn = QPushButton("Copy Helper Code")
         copy_code_btn.setMinimumHeight(32)
-        copy_code_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_SUCCESS}; border: 1px solid {C_SUCCESS}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_SUCCESS}; color: black; }}")
+        copy_code_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {C_INPUT}; color: {C_SUCCESS}; border: 1px solid {C_SUCCESS}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_SUCCESS}; color: black; }}"
+        )
         copy_code_btn.clicked.connect(self.copy_helper_code)
         data_btn_layout.addWidget(copy_code_btn)
         data_btn_layout.addStretch()
@@ -608,7 +685,9 @@ class CrucibleWindow(QMainWindow):
         self.app_name_edit = QLineEdit()
         self.app_name_edit.setPlaceholderText("e.g., My Cool App")
         self.app_name_edit.setMinimumHeight(32)
-        self.app_name_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}")
+        self.app_name_edit.setStyleSheet(
+            f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}"
+        )
         meta_layout.addWidget(self.app_name_edit, 0, 1)
 
         meta_layout.addWidget(QLabel("Version:"), 0, 2)
@@ -646,7 +725,9 @@ class CrucibleWindow(QMainWindow):
         adv_layout = QVBoxLayout()
         self.pyqt_check = QCheckBox("My app is a Desktop GUI (PyQt6)")
         self.pyqt_check.setFont(QFont("Segoe UI", 12))
-        self.pyqt_check.setStyleSheet(f"QCheckBox {{ color: {C_WHITE}; spacing: 8px; padding: 4px; }} QCheckBox::indicator {{ width: 18px; height: 18px; border: 1px solid {C_BORDER}; border-radius: 3px; background: {C_INPUT}; }} QCheckBox::indicator:checked {{ background: {C_RED}; border-color: {C_RED}; }}")
+        self.pyqt_check.setStyleSheet(
+            f"QCheckBox {{ color: {C_WHITE}; spacing: 8px; padding: 4px; }} QCheckBox::indicator {{ width: 18px; height: 18px; border: 1px solid {C_BORDER}; border-radius: 3px; background: {C_INPUT}; }} QCheckBox::indicator:checked {{ background: {C_RED}; border-color: {C_RED}; }}"
+        )
         adv_layout.addWidget(self.pyqt_check)
 
         self.tk_check = QCheckBox("My app uses Tkinter")
@@ -682,7 +763,9 @@ class CrucibleWindow(QMainWindow):
         self.threads_spin.setMaximum(64)
         self.threads_spin.setValue(0)
         self.threads_spin.setFixedHeight(32)
-        self.threads_spin.setStyleSheet(f"QSpinBox {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}")
+        self.threads_spin.setStyleSheet(
+            f"QSpinBox {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
+        )
         sys_layout.addWidget(self.threads_spin)
         sys_layout.addStretch()
         options_card.addLayout(sys_layout)
@@ -722,21 +805,26 @@ class CrucibleWindow(QMainWindow):
 
     def auto_scan_for_files(self):
         if not self.script_path:
-            QMessageBox.warning(self, "Hold On!", "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.")
+            QMessageBox.warning(
+                self,
+                "Hold On!",
+                "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.",
+            )
             return
 
         script_dir = Path(self.script_path).parent
         found_files = 0
         try:
-            with open(self.script_path, 'r', encoding='utf-8') as f:
+            with open(self.script_path, "r", encoding="utf-8") as f:
                 file_content = f.read()
             tree = ast.parse(file_content)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     val = node.value
-                    if '.' in val and len(val) < 100 and not val.startswith('http'):
-                        clean_val = val.replace('\\', '/').split('/')[-1]
-                        if clean_val.endswith('.py'): continue
+                    if "." in val and len(val) < 100 and not val.startswith("http"):
+                        clean_val = val.replace("\\", "/").split("/")[-1]
+                        if clean_val.endswith(".py"):
+                            continue
                         potential_path = script_dir / clean_val
                         if potential_path.exists() and potential_path.is_file():
                             spec = f"{potential_path}={clean_val}"
@@ -754,7 +842,7 @@ class CrucibleWindow(QMainWindow):
             QMessageBox.warning(self, "Scan Failed", str(e))
 
     def copy_helper_code(self):
-        snippet = '''import sys
+        snippet = """import sys
 from pathlib import Path
 def get_resource_path(filename):
     if "__compiled__" in globals() or hasattr(sys, "frozen"):
@@ -762,31 +850,46 @@ def get_resource_path(filename):
     else:
         base_path = Path(__file__).parent.resolve()
     return base_path / filename
-'''
+"""
         QApplication.clipboard().setText(snippet)
         QMessageBox.information(self, "Code Copied!", "Paste this at the top of your script.")
 
     def save_profile(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save Build Profile", "", "Crucible Profile (*.crucible)")
-        if not path: return
+        if not path:
+            return
         profile = {
-            "script": self.script_path, "icon": self.icon_path, "env": self.env_edit.text(),
-            "app_name": self.app_name_edit.text(), "app_version": self.app_version_edit.text(),
-            "app_company": self.app_company_edit.text(), "include_pkg": self.include_pkg_edit.text(),
-            "exclude_pkg": self.exclude_pkg_edit.text(), "pyqt": self.pyqt_check.isChecked(),
-            "tk": self.tk_check.isChecked(), "lto": self.lto_check.isChecked(),
-            "upx": self.upx_check.isChecked(), "admin": self.admin_check.isChecked(),
-            "threads": self.threads_spin.value(), "data_files": self.data_files, "data_dirs": self.data_dirs
+            "script": self.script_path,
+            "icon": self.icon_path,
+            "env": self.env_edit.text(),
+            "app_name": self.app_name_edit.text(),
+            "app_version": self.app_version_edit.text(),
+            "app_company": self.app_company_edit.text(),
+            "include_pkg": self.include_pkg_edit.text(),
+            "exclude_pkg": self.exclude_pkg_edit.text(),
+            "pyqt": self.pyqt_check.isChecked(),
+            "tk": self.tk_check.isChecked(),
+            "lto": self.lto_check.isChecked(),
+            "upx": self.upx_check.isChecked(),
+            "admin": self.admin_check.isChecked(),
+            "threads": self.threads_spin.value(),
+            "data_files": self.data_files,
+            "data_dirs": self.data_dirs,
         }
-        with open(path, 'w') as f: json.dump(profile, f, indent=4)
+        with open(path, "w") as f:
+            json.dump(profile, f, indent=4)
         self.log(f"  Profile saved to {path}", "success")
 
     def load_profile(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Build Profile", "", "Crucible Profile (*.crucible)")
-        if not path: return
-        with open(path, 'r') as f: profile = json.load(f)
-        if profile.get("script"): self.set_script_path(profile["script"])
-        if profile.get("icon"): self.set_icon_path(profile["icon"])
+        if not path:
+            return
+        with open(path, "r") as f:
+            profile = json.load(f)
+        if profile.get("script"):
+            self.set_script_path(profile["script"])
+        if profile.get("icon"):
+            self.set_icon_path(profile["icon"])
         self.env_edit.setText(profile.get("env", sys.executable))
         self.app_name_edit.setText(profile.get("app_name", ""))
         self.app_version_edit.setText(profile.get("app_version", ""))
@@ -802,36 +905,52 @@ def get_resource_path(filename):
         self.data_files = profile.get("data_files", [])
         self.data_dirs = profile.get("data_dirs", [])
         self.data_list.clear()
-        for d in self.data_files: self.data_list.addItem(f"[File]  {d.split('=')[1] if '=' in d else d}")
-        for d in self.data_dirs: self.data_list.addItem(f"[Dir]   {d.split('=')[1] if '=' in d else d}")
+        for d in self.data_files:
+            self.data_list.addItem(f"[File]  {d.split('=')[1] if '=' in d else d}")
+        for d in self.data_dirs:
+            self.data_list.addItem(f"[Dir]   {d.split('=')[1] if '=' in d else d}")
 
     def check_and_install_nuitka(self):
         try:
-            subprocess.run([self.env_edit.text(), "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=15)
+            subprocess.run(
+                [self.env_edit.text(), "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=15
+            )
             return True
-        except Exception: pass
+        except Exception:
+            pass
 
-        reply = QMessageBox.question(self, "Missing Tool", "Nuitka (the engine that compiles your app) is not installed in the selected Python environment. Would you like Crucible to install it for you automatically?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        reply = QMessageBox.question(
+            self,
+            "Missing Tool",
+            "Nuitka (the engine that compiles your app) is not installed in the selected Python environment. Would you like Crucible to install it for you automatically?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 subprocess.run([self.env_edit.text(), "-m", "pip", "install", "nuitka"], check=True)
                 return True
-            except Exception: return False
+            except Exception:
+                return False
         return False
 
     def browse_env(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select python.exe", "", "python.exe" if sys.platform == "win32" else "All Files (*)")
-        if path: self.env_edit.setText(path)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select python.exe", "", "python.exe" if sys.platform == "win32" else "All Files (*)"
+        )
+        if path:
+            self.env_edit.setText(path)
 
     def add_data_file(self, path=None):
-        if path is None: path, _ = QFileDialog.getOpenFileName(self, "Select File")
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Select File")
         if path:
             spec = f"{path}={Path(path).name}"
             self.data_files.append(spec)
             self.data_list.addItem(f"[File]  {Path(path).name}")
 
     def add_data_dir(self, path=None):
-        if path is None: path = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if path is None:
+            path = QFileDialog.getExistingDirectory(self, "Select Folder")
         if path:
             spec = f"{path}={Path(path).name}"
             self.data_dirs.append(spec)
@@ -841,31 +960,42 @@ def get_resource_path(filename):
         for item in self.data_list.selectedItems():
             row = self.data_list.row(item)
             self.data_list.takeItem(row)
-            if item.text().startswith("[File]"): self.data_files.pop(row)
-            else: self.data_dirs.pop(row)
+            if item.text().startswith("[File]"):
+                self.data_files.pop(row)
+            else:
+                self.data_dirs.pop(row)
 
     def script_drag_enter(self, event):
-        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().endswith('.py'): event.acceptProposedAction()
+        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().endswith(".py"):
+            event.acceptProposedAction()
 
-    def script_drop(self, event): self.set_script_path(event.mimeData().urls()[0].toLocalFile())
+    def script_drop(self, event):
+        self.set_script_path(event.mimeData().urls()[0].toLocalFile())
 
     def icon_drag_enter(self, event):
-        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().lower().endswith(('.png', '.jpg', '.jpeg', '.ico')): event.acceptProposedAction()
+        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().lower().endswith(
+            (".png", ".jpg", ".jpeg", ".ico")
+        ):
+            event.acceptProposedAction()
 
-    def icon_drop(self, event): self.set_icon_path(event.mimeData().urls()[0].toLocalFile())
+    def icon_drop(self, event):
+        self.set_icon_path(event.mimeData().urls()[0].toLocalFile())
 
     def browse_script(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choose Your Python Script", "", "Python (*.py)")
-        if path: self.set_script_path(path)
+        if path:
+            self.set_script_path(path)
 
     def browse_icon(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choose an App Icon", "", "Images (*.png *.jpg *.jpeg *.ico)")
-        if path: self.set_icon_path(path)
+        if path:
+            self.set_icon_path(path)
 
     def set_script_path(self, path):
         self.script_path = path
         self.script_edit.setText(path)
-        if not self.app_name_edit.text(): self.app_name_edit.setText(Path(path).stem.replace('_', ' ').title())
+        if not self.app_name_edit.text():
+            self.app_name_edit.setText(Path(path).stem.replace("_", " ").title())
 
     def set_icon_path(self, path):
         self.icon_path = path
@@ -873,46 +1003,73 @@ def get_resource_path(filename):
 
     def start_build(self):
         if not self.script_path:
-            QMessageBox.warning(self, "Hold On!", "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.")
+            QMessageBox.warning(
+                self,
+                "Hold On!",
+                "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.",
+            )
             return
 
-        if not self.check_and_install_nuitka(): return
+        if not self.check_and_install_nuitka():
+            return
 
-        include_pkgs = [p.strip() for p in self.include_pkg_edit.text().split(',') if p.strip()] if self.include_pkg_edit.text().strip() else []
-        exclude_pkgs = [p.strip() for p in self.exclude_pkg_edit.text().split(',') if p.strip()] if self.exclude_pkg_edit.text().strip() else []
+        include_pkgs = (
+            [p.strip() for p in self.include_pkg_edit.text().split(",") if p.strip()]
+            if self.include_pkg_edit.text().strip()
+            else []
+        )
+        exclude_pkgs = (
+            [p.strip() for p in self.exclude_pkg_edit.text().split(",") if p.strip()]
+            if self.exclude_pkg_edit.text().strip()
+            else []
+        )
 
         options = {
-            "pyqt6": self.pyqt_check.isChecked(), "tkinter": self.tk_check.isChecked(),
-            "lto": self.lto_check.isChecked(), "upx": self.upx_check.isChecked(),
-            "remove_build": True, "jobs": self.threads_spin.value(),
-            "data_files": self.data_files, "data_dirs": self.data_dirs,
-            "app_name": self.app_name_edit.text().strip(), "app_version": self.app_version_edit.text().strip(),
-            "app_company": self.app_company_edit.text().strip(), "include_packages": include_pkgs,
-            "exclude_packages": exclude_pkgs, "run_as_admin": self.admin_check.isChecked()
+            "pyqt6": self.pyqt_check.isChecked(),
+            "tkinter": self.tk_check.isChecked(),
+            "lto": self.lto_check.isChecked(),
+            "upx": self.upx_check.isChecked(),
+            "remove_build": True,
+            "jobs": self.threads_spin.value(),
+            "data_files": self.data_files,
+            "data_dirs": self.data_dirs,
+            "app_name": self.app_name_edit.text().strip(),
+            "app_version": self.app_version_edit.text().strip(),
+            "app_company": self.app_company_edit.text().strip(),
+            "include_packages": include_pkgs,
+            "exclude_packages": exclude_pkgs,
+            "run_as_admin": self.admin_check.isChecked(),
         }
 
         self.build_btn.setEnabled(False)
         self.build_btn.setText("  BUILDING... (Click to Cancel)  ")
         self.progress.setValue(0)
 
-        try: self.build_btn.clicked.disconnect()
-        except TypeError: pass
+        try:
+            self.build_btn.clicked.disconnect()
+        except TypeError:
+            pass
         self.build_btn.clicked.connect(self.cancel_build)
 
-        self.build_thread = NuitkaBuildThread(self.script_path, str(Path(self.script_path).parent), self.env_edit.text(), self.icon_path, options)
+        self.build_thread = NuitkaBuildThread(
+            self.script_path, str(Path(self.script_path).parent), self.env_edit.text(), self.icon_path, options
+        )
         self.build_thread.output.connect(self.log)
         self.build_thread.progress.connect(self.progress.setValue)
         self.build_thread.finished_build.connect(self.build_finished)
         self.build_thread.start()
 
     def cancel_build(self):
-        if self.build_thread and self.build_thread.isRunning(): self.build_thread.cancel()
+        if self.build_thread and self.build_thread.isRunning():
+            self.build_thread.cancel()
 
     def build_finished(self, success, message, exe_path):
         self.build_btn.setEnabled(True)
         self.build_btn.setText("  BUILD MY APP NOW  ")
-        try: self.build_btn.clicked.disconnect()
-        except TypeError: pass
+        try:
+            self.build_btn.clicked.disconnect()
+        except TypeError:
+            pass
         self.build_btn.clicked.connect(self.start_build)
 
         if success:
@@ -928,24 +1085,36 @@ def get_resource_path(filename):
                 msg_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
                 msg_box.exec()
 
-                if msg_box.clickedButton() == open_btn: self.open_folder(exe_path)
-                elif msg_box.clickedButton() == test_btn: self.test_app(exe_path)
+                if msg_box.clickedButton() == open_btn:
+                    self.open_folder(exe_path)
+                elif msg_box.clickedButton() == test_btn:
+                    self.test_app(exe_path)
         else:
             self.log(f"  ✗ {message}", "error")
             self.progress.setValue(0)
-            QMessageBox.critical(self, "Build Failed", "Oops! Something went wrong during the build.\nCheck the log below to see what happened.\nTip: If a module is missing, try typing its name in the 'Force Include Modules' box.")
+            QMessageBox.critical(
+                self,
+                "Build Failed",
+                "Oops! Something went wrong during the build.\nCheck the log below to see what happened.\nTip: If a module is missing, try typing its name in the 'Force Include Modules' box.",
+            )
 
     def test_app(self, path):
         if path and Path(path).exists():
-            if sys.platform == "win32": os.startfile(path)
-            elif sys.platform == "darwin": subprocess.Popen(["open", path])
-            else: subprocess.Popen([path])
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen([path])
 
     def open_folder(self, path):
         folder = str(Path(path).parent)
-        if sys.platform == "win32": os.startfile(folder)
-        elif sys.platform == "darwin": subprocess.Popen(["open", folder])
-        else: subprocess.Popen(["xdg-open", folder])
+        if sys.platform == "win32":
+            os.startfile(folder)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+        else:
+            subprocess.Popen(["xdg-open", folder])
 
     def log(self, message, level="info"):
         colors = {"info": C_WHITE, "dim": C_GRAY, "success": C_SUCCESS, "warning": "#ffaa00", "error": C_ERROR}
@@ -953,7 +1122,9 @@ def get_resource_path(filename):
 
     def setup_menubar(self):
         menubar = self.menuBar()
-        menubar.setStyleSheet(f"QMenuBar {{ background-color: {C_BG}; color: {C_WHITE}; font-size: 13px; }} QMenuBar::item:selected {{ background: {C_RED}; }}")
+        menubar.setStyleSheet(
+            f"QMenuBar {{ background-color: {C_BG}; color: {C_WHITE}; font-size: 13px; }} QMenuBar::item:selected {{ background: {C_RED}; }}"
+        )
 
         file_menu = menubar.addMenu("&File")
         save_profile_action = QAction("Save Build Profile", self)
@@ -974,7 +1145,9 @@ def get_resource_path(filename):
         file_menu.addAction(quit_action)
 
     def apply_theme(self):
-        self.setStyleSheet(f"QMainWindow, QWidget {{ background-color: {C_BG}; color: {C_WHITE}; font-family: 'Segoe UI'; }}")
+        self.setStyleSheet(
+            f"QMainWindow, QWidget {{ background-color: {C_BG}; color: {C_WHITE}; font-family: 'Segoe UI'; }}"
+        )
         self.setWindowIcon(QIcon(load_redtongue_logo(64)))
 
     def save_state(self):
@@ -982,23 +1155,31 @@ def get_resource_path(filename):
 
     def restore_state(self):
         geometry = self.settings.value("window/geometry")
-        if geometry: self.restoreGeometry(geometry)
+        if geometry:
+            self.restoreGeometry(geometry)
         else:
             screen = QApplication.primaryScreen().geometry()
             self.move((screen.width() - self.width()) // 2, (screen.height() - self.height()) // 2)
 
     def closeEvent(self, event):
         if self.build_thread and self.build_thread.isRunning():
-            reply = QMessageBox.question(self, "Build Running", "Cancel and quit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(
+                self,
+                "Build Running",
+                "Cancel and quit?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
             if reply == QMessageBox.StandardButton.Yes:
                 self.build_thread.cancel()
                 self.build_thread.wait(2000)
                 self.save_state()
                 event.accept()
-            else: event.ignore()
+            else:
+                event.ignore()
         else:
             self.save_state()
             event.accept()
+
 
 def main():
     app = QApplication(sys.argv)
@@ -1019,6 +1200,7 @@ def main():
     window = CrucibleWindow()
     window.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

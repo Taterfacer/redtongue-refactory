@@ -4,6 +4,7 @@ ui_main.py
 Main application window and UI components for the RedTongue Refactory.
 Handles layout, deck launching, AI chat streaming, and forensic linting.
 """
+
 import asyncio
 import json
 import os
@@ -78,11 +79,13 @@ QScrollBar::handle:vertical {{ background: #333333; border-radius: 5px; }}
 QStatusBar {{ background-color: #0a0a0a; color: {C_GRAY}; border-top: 1px solid {C_BORDER}; }}
 """
 
+
 # ==============================================================================
 # WORKERS
 # ==============================================================================
 class ChatWorker(QThread):
     """Streams AI responses and tool executions."""
+
     token_received = pyqtSignal(str)
     tool_executed = pyqtSignal(str, str)
     finished_signal = pyqtSignal()
@@ -99,6 +102,7 @@ class ChatWorker(QThread):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+
             async def process():
                 async for event in self.swarm.run_main_agent(self.message, self.history, rag_context=self.context):
                     try:
@@ -113,14 +117,17 @@ class ChatWorker(QThread):
                             self.finished_signal.emit()
                     except json.JSONDecodeError:
                         pass
+
             loop.run_until_complete(process())
         except Exception as e:
             self.error_signal.emit(str(e))
         finally:
             loop.close()
 
+
 class LintWorker(QThread):
     """Chunked background linting to prevent RAM spikes."""
+
     batch_ready = pyqtSignal(list)
     progress = pyqtSignal(str)
     finished_lint = pyqtSignal(dict)
@@ -146,7 +153,7 @@ class LintWorker(QThread):
             for i in range(0, total, self.batch_size):
                 if not self._is_running:
                     return
-                batch = files[i:i + self.batch_size]
+                batch = files[i : i + self.batch_size]
                 self.progress.emit(f"Parsing batch {i//self.batch_size + 1}...")
 
                 # Mock AST analysis for skeleton (replace with engine.ast_pass)
@@ -156,12 +163,20 @@ class LintWorker(QThread):
                         with open(f, "r", encoding="utf-8") as fh:
                             content = fh.read()
                         if "import *" in content:
-                            issues.append({"code": "AST-IMP001", "severity": "HIGH", "path": f, "line": 1, "msg": "Wildcard import detected."})
+                            issues.append(
+                                {
+                                    "code": "AST-IMP001",
+                                    "severity": "HIGH",
+                                    "path": f,
+                                    "line": 1,
+                                    "msg": "Wildcard import detected.",
+                                }
+                            )
                     except Exception:
                         pass
 
                 self.batch_ready.emit(issues)
-                self.msleep(100) # Yield to OS
+                self.msleep(100)  # Yield to OS
 
             self.finished_lint.emit({"total_files": total, "total_issues": 0})
         except Exception as e:
@@ -170,11 +185,13 @@ class LintWorker(QThread):
     def stop(self):
         self._is_running = False
 
+
 # ==============================================================================
 # UI COMPONENTS
 # ==============================================================================
 class PythonHighlighter(QSyntaxHighlighter):
     """Basic Python syntax highlighting."""
+
     def __init__(self, document):
         super().__init__(document)
         self.rules = []
@@ -182,21 +199,45 @@ class PythonHighlighter(QSyntaxHighlighter):
         kw_fmt.setForeground(QColor("#D4A76A"))
         kw_fmt.setFontWeight(QFont.Weight.Bold)
 
-        for kw in ['def', 'class', 'import', 'from', 'return', 'if', 'elif', 'else', 'for', 'while', 'try', 'except', 'with', 'as', 'pass', 'True', 'False', 'None']:
+        for kw in [
+            "def",
+            "class",
+            "import",
+            "from",
+            "return",
+            "if",
+            "elif",
+            "else",
+            "for",
+            "while",
+            "try",
+            "except",
+            "with",
+            "as",
+            "pass",
+            "True",
+            "False",
+            "None",
+        ]:
             self.rules.append((f"\\b{kw}\\b", kw_fmt))
 
     def highlightBlock(self, text):
         for pattern, fmt in self.rules:
             import re
+
             for match in re.finditer(pattern, text):
                 self.setFormat(match.start(), match.end() - match.start(), fmt)
 
+
 class CodeEditor(QPlainTextEdit):
     """Native code editor with line numbers."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFont(QFont("Consolas", 11))
-        self.setStyleSheet(f"background-color: {C_BG}; color: {C_WHITE}; border: none; selection-background-color: {C_RED};")
+        self.setStyleSheet(
+            f"background-color: {C_BG}; color: {C_WHITE}; border: none; selection-background-color: {C_RED};"
+        )
         self.highlighter = PythonHighlighter(self.document())
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
@@ -216,8 +257,10 @@ class CodeEditor(QPlainTextEdit):
             QMessageBox.critical(self, "Save Error", str(e))
             return False
 
+
 class ChatPanel(QWidget):
     """AI Chat interface with Speech-to-Text."""
+
     def __init__(self, swarm: AgentSwarm, stt: SpeechToText, parent=None):
         super().__init__(parent)
         self.swarm = swarm
@@ -263,8 +306,13 @@ class ChatPanel(QWidget):
         text = self.stt.listen_and_transcribe()
         # Update UI on main thread
         from PyQt6.QtCore import QMetaObject, Qt
-        QMetaObject.invokeMethod(self, "_update_input", Qt.ConnectionType.QueuedConnection,
-                                 QMetaObject.Connection(lambda t=text: self.input.setText(t) if t else None))
+
+        QMetaObject.invokeMethod(
+            self,
+            "_update_input",
+            Qt.ConnectionType.QueuedConnection,
+            QMetaObject.Connection(lambda t=text: self.input.setText(t) if t else None),
+        )
         self.mic_btn.setText("🎤")
         self.mic_btn.setEnabled(True)
 
@@ -304,8 +352,10 @@ class ChatPanel(QWidget):
         self.display.appendPlainText("\n")
         self.history.append({"role": "assistant", "content": "Response complete."})
 
+
 class LintPanel(QWidget):
     """Forensic lint results table."""
+
     def __init__(self, on_push_to_ai, parent=None):
         super().__init__(parent)
         self.on_push_to_ai = on_push_to_ai
@@ -381,6 +431,7 @@ class LintPanel(QWidget):
         for i in critical:
             prompt += f"- [{i['code']}] {i['path']}:{i['line']} -> {i['msg']}\n"
         self.on_push_to_ai(prompt)
+
 
 # ==============================================================================
 # MAIN WINDOW

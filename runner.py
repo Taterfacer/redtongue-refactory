@@ -7,6 +7,7 @@ Uses native OS primitives (rlimits on Linux, Process Groups on Windows) and
 psutil for robust process tree termination.
 Optimized for low-RAM (8GB) environments to prevent OOM crashes.
 """
+
 import logging
 import os
 import subprocess
@@ -15,6 +16,7 @@ from pathlib import Path
 
 try:
     import psutil
+
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
@@ -28,6 +30,7 @@ DEFAULT_TIMEOUT = 60
 DEFAULT_MEMORY_LIMIT_MB = 512
 DEFAULT_CPU_TIME_LIMIT = 30
 MAX_OUTPUT_SIZE = 100_000
+
 
 # ==============================================================================
 # LINUX RESOURCE LIMITS
@@ -51,6 +54,7 @@ def _linux_set_limits(memory_limit_mb: int, cpu_time_limit: int):
 
     # Create a new process group to isolate signals
     os.setsid()
+
 
 # ==============================================================================
 # PROCESS TREE MANAGEMENT
@@ -96,6 +100,7 @@ def kill_process_tree(pid: int, timeout: float = 3.0) -> bool:
         logger.error(f"Failed to kill process tree {pid}: {e}")
         return False
 
+
 # ==============================================================================
 # SANDBOX RUNNER
 # ==============================================================================
@@ -110,7 +115,7 @@ class SandboxRunner:
         workspace: str,
         timeout: int = DEFAULT_TIMEOUT,
         memory_limit_mb: int = DEFAULT_MEMORY_LIMIT_MB,
-        cpu_time_limit: int = DEFAULT_CPU_TIME_LIMIT
+        cpu_time_limit: int = DEFAULT_CPU_TIME_LIMIT,
     ):
         self.workspace = Path(workspace).resolve()
         self.timeout = timeout
@@ -139,16 +144,11 @@ class SandboxRunner:
                 "status": "error",
                 "output": "Security Error: Script is outside the workspace.",
                 "returncode": -1,
-                "killed": False
+                "killed": False,
             }
 
         if not script.exists() or not script.is_file():
-            return {
-                "status": "error",
-                "output": f"File not found: {script_path}",
-                "returncode": -1,
-                "killed": False
-            }
+            return {"status": "error", "output": f"File not found: {script_path}", "returncode": -1, "killed": False}
 
         cmd = [sys.executable, "-u", str(script)]
 
@@ -163,7 +163,7 @@ class SandboxRunner:
             "cwd": str(self.workspace),
             "env": env,
             "bufsize": 1,
-            "universal_newlines": True
+            "universal_newlines": True,
         }
 
         # Platform-specific setup
@@ -171,7 +171,11 @@ class SandboxRunner:
         creationflags = 0
 
         if sys.platform != "win32":
-            preexec_fn = lambda: _linux_set_limits(self.memory_limit_mb, self.cpu_time_limit)
+
+            def _set_limits() -> None:
+                _linux_set_limits(self.memory_limit_mb, self.cpu_time_limit)
+
+            preexec_fn = _set_limits
             kwargs["preexec_fn"] = preexec_fn
         else:
             # Windows: Create new process group, no console window
@@ -211,12 +215,7 @@ class SandboxRunner:
         if stdout and len(stdout) > MAX_OUTPUT_SIZE:
             stdout = stdout[:MAX_OUTPUT_SIZE] + "\n\n[OUTPUT TRUNCATED: Exceeded 100,000 characters]"
 
-        return {
-            "status": status,
-            "output": stdout or "(no output)",
-            "returncode": returncode,
-            "killed": killed
-        }
+        return {"status": status, "output": stdout or "(no output)", "returncode": returncode, "killed": killed}
 
     def execute_inline(self, code: str) -> dict:
         """
@@ -227,7 +226,7 @@ class SandboxRunner:
 
         try:
             with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.py', delete=False, dir=str(self.workspace), encoding='utf-8'
+                mode="w", suffix=".py", delete=False, dir=str(self.workspace), encoding="utf-8"
             ) as tmp:
                 tmp.write(code)
                 tmp_path = tmp.name

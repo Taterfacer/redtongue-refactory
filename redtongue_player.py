@@ -7,6 +7,7 @@ Includes playlist management, Fisher-Yates shuffle, drag-and-drop, and
 persistent JSON-based library.
 Rule 7 Compliant: No external codec packs, no registry scanning, no bloat.
 """
+
 import json
 import random
 import shutil
@@ -36,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 try:
     from mutagen import File as MutagenFile
+
     HAS_MUTAGEN = True
 except ImportError:
     HAS_MUTAGEN = False
@@ -62,18 +64,21 @@ VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v"}
 AUDIO_EXTS = {".mp3", ".flac", ".aac", ".ogg", ".opus", ".m4a", ".wav", ".wma"}
 ALL_EXTS = VIDEO_EXTS | AUDIO_EXTS
 
+
 # ==============================================================================
 # UTILITIES
 # ==============================================================================
 def format_time(ms: int) -> str:
     """Formats milliseconds to MM:SS or HH:MM:SS."""
-    if ms < 0: return "0:00"
+    if ms < 0:
+        return "0:00"
     seconds = ms // 1000
     minutes = seconds // 60
     hours = minutes // 60
     if hours > 0:
         return f"{hours}:{minutes % 60:02d}:{seconds % 60:02d}"
     return f"{minutes}:{seconds % 60:02d}"
+
 
 def atomic_write_json(path: Path, data: Any) -> None:
     """Writes JSON atomically to prevent corruption."""
@@ -83,9 +88,11 @@ def atomic_write_json(path: Path, data: Any) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
     shutil.move(str(tmp), str(path))
 
+
 def load_json(path: Path, default: Any = None) -> Any:
     """Loads JSON with fallback."""
-    if default is None: default = {}
+    if default is None:
+        default = {}
     if path.exists():
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -94,11 +101,13 @@ def load_json(path: Path, default: Any = None) -> Any:
             pass
     return default
 
+
 # ==============================================================================
 # SHUFFLE QUEUE (Fisher-Yates)
 # ==============================================================================
 class ShuffleQueue:
     """Manages shuffle state without repeating tracks."""
+
     def __init__(self):
         self._unplayed: list[int] = []
         self._history: list[int] = []
@@ -111,7 +120,8 @@ class ShuffleQueue:
         self._history = []
 
     def sync(self, size: int):
-        if size == self._size: return
+        if size == self._size:
+            return
         if size > self._size:
             new_idx = list(range(self._size, size))
             random.shuffle(new_idx)
@@ -122,11 +132,14 @@ class ShuffleQueue:
         self._size = size
 
     def mark_played(self, idx: int):
-        if idx in self._unplayed: self._unplayed.remove(idx)
-        if idx not in self._history: self._history.append(idx)
+        if idx in self._unplayed:
+            self._unplayed.remove(idx)
+        if idx not in self._history:
+            self._history.append(idx)
 
     def next(self, size: int, current_index: int) -> int:
-        if size <= 0: return -1
+        if size <= 0:
+            return -1
         self.sync(size)
         if not self._unplayed:
             self._unplayed = list(range(size))
@@ -142,8 +155,10 @@ class ShuffleQueue:
         return idx
 
     def previous(self, current_index: int) -> int:
-        if len(self._history) < 2: return -1
-        if self._history[-1] == current_index: self._history.pop()
+        if len(self._history) < 2:
+            return -1
+        if self._history[-1] == current_index:
+            self._history.pop()
         if self._history:
             prev = self._history[-1]
             if current_index != -1 and current_index not in self._unplayed:
@@ -151,11 +166,13 @@ class ShuffleQueue:
             return prev
         return -1
 
+
 # ==============================================================================
 # MEDIA LIBRARY
 # ==============================================================================
 class MediaLibrary:
     """Lightweight, JSON-persisted media metadata cache."""
+
     def __init__(self):
         self.data = load_json(LIBRARY_FILE, {"tracks": [], "folders": []})
         self.tracks: list[dict[str, Any]] = self.data.get("tracks", [])
@@ -187,16 +204,22 @@ class MediaLibrary:
             try:
                 mfile = MutagenFile(str(path))
                 if mfile is not None:
+
                     def get(*keys):
                         for k in keys:
-                            if mfile.get(k): return str(mfile[k][0])
+                            if mfile.get(k):
+                                return str(mfile[k][0])
                         return None
+
                     title = get("title", "TIT2")
                     artist = get("artist", "TPE1")
                     album = get("album", "TALB")
-                    if title: track["title"] = title
-                    if artist: track["artist"] = artist
-                    if album: track["album"] = album
+                    if title:
+                        track["title"] = title
+                    if artist:
+                        track["artist"] = artist
+                    if album:
+                        track["album"] = album
                     if hasattr(mfile, "info") and hasattr(mfile.info, "length"):
                         track["duration"] = int(mfile.info.length * 1000)
             except Exception:
@@ -205,15 +228,18 @@ class MediaLibrary:
 
     def add_folder(self, folder: str) -> int:
         folder_path = Path(folder)
-        if not folder_path.exists(): return 0
-        if folder not in self.folders: self.folders.append(folder)
+        if not folder_path.exists():
+            return 0
+        if folder not in self.folders:
+            self.folders.append(folder)
 
         existing = {t["path"] for t in self.tracks}
         added = 0
         for ext in ALL_EXTS:
             for p in folder_path.rglob(f"*{ext}"):
                 sp = str(p)
-                if sp in existing: continue
+                if sp in existing:
+                    continue
                 t = self._extract_metadata(p)
                 if t:
                     self.tracks.append(t)
@@ -228,11 +254,13 @@ class MediaLibrary:
             self.tracks = [t for t in self.tracks if not t["path"].startswith(folder)]
             self.save()
 
+
 # ==============================================================================
 # UI COMPONENTS
 # ==============================================================================
 class PlaylistWidget(QListWidget):
     """Custom playlist with drag-and-drop and context menus."""
+
     item_activated = pyqtSignal(int)
 
     def __init__(self, parent=None):
@@ -253,12 +281,16 @@ class PlaylistWidget(QListWidget):
         self.itemDoubleClicked.connect(lambda item: self.item_activated.emit(self.row(item)))
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
-        else: event.ignore()
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
-        else: event.ignore()
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dropEvent(self, event: QDropEvent):
         urls = event.mimeData().urls()
@@ -293,6 +325,7 @@ class PlaylistWidget(QListWidget):
             self.takeItem(row)
             self.parent().remove_track_at(row)
 
+
 class RTButton(QPushButton):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
@@ -306,6 +339,7 @@ class RTButton(QPushButton):
             QPushButton#Primary {{ background-color: {C_RED}; border-color: {C_RED_HOVER}; }}
             QPushButton#Primary:hover {{ background-color: {C_RED_HOVER}; }}
         """)
+
 
 class RTSlider(QSlider):
     def __init__(self, orientation, parent=None):
@@ -322,6 +356,7 @@ class RTSlider(QSlider):
             }}
         """)
 
+
 # ==============================================================================
 # MAIN MEDIA WIDGET
 # ==============================================================================
@@ -333,7 +368,7 @@ class MediaSuiteWidget(QWidget):
         self.playlist: list[Path] = []
         self.current_index = -1
         self.shuffle_mode = False
-        self.repeat_mode = 0 # 0: Off, 1: One, 2: All
+        self.repeat_mode = 0  # 0: Off, 1: One, 2: All
         self._seeking = False
 
         # Config
@@ -381,7 +416,7 @@ class MediaSuiteWidget(QWidget):
         self.seek_slider = RTSlider(Qt.Orientation.Horizontal)
         self.seek_slider.setRange(0, 0)
         self.seek_slider.setEnabled(False)
-        self.seek_slider.sliderPressed.connect(lambda: setattr(self, '_seeking', True))
+        self.seek_slider.sliderPressed.connect(lambda: setattr(self, "_seeking", True))
         self.seek_slider.sliderReleased.connect(self._on_seek_released)
         self.seek_slider.sliderMoved.connect(self._seek)
         seek_layout.addWidget(self.seek_slider, stretch=1)
@@ -476,14 +511,18 @@ class MediaSuiteWidget(QWidget):
 
     # --- Playback Logic ---
     def _open_files(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Open Media", "", "Media Files (*.mp3 *.mp4 *.mkv *.wav *.flac *.aac *.ogg)")
-        if files: self._add_files([Path(f) for f in files])
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Open Media", "", "Media Files (*.mp3 *.mp4 *.mkv *.wav *.flac *.aac *.ogg)"
+        )
+        if files:
+            self._add_files([Path(f) for f in files])
 
     def _open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Open Media Folder")
         if folder:
             found = [f for f in Path(folder).rglob("*") if f.suffix.lower() in ALL_EXTS]
-            if found: self._add_files(sorted(found))
+            if found:
+                self._add_files(sorted(found))
 
     def _add_files(self, paths: list[Path]):
         for p in paths:
@@ -493,15 +532,18 @@ class MediaSuiteWidget(QWidget):
                 item.setToolTip(str(p))
                 self.playlist_widget.addItem(item)
 
-        if self.shuffle_mode: self.shuffle_queue.sync(len(self.playlist))
-        if self.current_index == -1 and self.playlist: self._play_index(0)
+        if self.shuffle_mode:
+            self.shuffle_queue.sync(len(self.playlist))
+        if self.current_index == -1 and self.playlist:
+            self._play_index(0)
         self._save_playlist()
 
     def handle_playlist_drop(self, paths: list[Path]):
         self._add_files(paths)
 
     def _play_index(self, index: int):
-        if not (0 <= index < len(self.playlist)): return
+        if not (0 <= index < len(self.playlist)):
+            return
         self.current_index = index
         path = self.playlist[index]
         self.player.setSource(QUrl.fromLocalFile(str(path)))
@@ -514,27 +556,33 @@ class MediaSuiteWidget(QWidget):
         if state == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
         else:
-            if self.current_index == -1 and self.playlist: self._play_index(0)
-            else: self.player.play()
+            if self.current_index == -1 and self.playlist:
+                self._play_index(0)
+            else:
+                self.player.play()
 
     def _play_next(self):
-        if not self.playlist: return
+        if not self.playlist:
+            return
         if self.shuffle_mode:
             idx = self.shuffle_queue.next(len(self.playlist), self.current_index)
-            if 0 <= idx < len(self.playlist): self._play_index(idx)
+            if 0 <= idx < len(self.playlist):
+                self._play_index(idx)
         elif self.current_index + 1 < len(self.playlist):
             self._play_index(self.current_index + 1)
         elif self.repeat_mode == 2:
             self._play_index(0)
 
     def _play_previous(self):
-        if not self.playlist: return
+        if not self.playlist:
+            return
         if self.player.position() > 5000:
             self.player.setPosition(0)
             return
         if self.shuffle_mode:
             idx = self.shuffle_queue.previous(self.current_index)
-            if 0 <= idx < len(self.playlist): self._play_index(idx)
+            if 0 <= idx < len(self.playlist):
+                self._play_index(idx)
         elif self.current_index > 0:
             self._play_index(self.current_index - 1)
 
@@ -565,21 +613,25 @@ class MediaSuiteWidget(QWidget):
         self._save_playlist()
 
     def remove_track_at(self, row: int):
-        if not (0 <= row < len(self.playlist)): return
+        if not (0 <= row < len(self.playlist)):
+            return
         if row == self.current_index:
             self.player.stop()
             self.current_index = -1
         elif row < self.current_index:
             self.current_index -= 1
         self.playlist.pop(row)
-        if self.shuffle_mode: self.shuffle_queue.reset(len(self.playlist))
+        if self.shuffle_mode:
+            self.shuffle_queue.reset(len(self.playlist))
         self._save_playlist()
 
     # --- UI Updates ---
     def _on_position_changed(self, position: int):
-        if self._seeking: return
+        if self._seeking:
+            return
         self.time_current.setText(format_time(position))
-        if self.seek_slider.maximum() > 0: self.seek_slider.setValue(position)
+        if self.seek_slider.maximum() > 0:
+            self.seek_slider.setValue(position)
 
     def _on_duration_changed(self, duration: int):
         self.seek_slider.setRange(0, duration)
@@ -592,8 +644,10 @@ class MediaSuiteWidget(QWidget):
         else:
             self.btn_play.setText("▶ Play")
             if self.current_index != -1 and self.player.position() >= self.player.duration() - 500:
-                if self.repeat_mode == 1: self._play_index(self.current_index)
-                else: self._play_next()
+                if self.repeat_mode == 1:
+                    self._play_index(self.current_index)
+                else:
+                    self._play_next()
 
     def _on_seek_released(self):
         self._seeking = False
@@ -630,7 +684,9 @@ class MediaSuiteWidget(QWidget):
         if paths:
             self._add_files(paths)
             idx = saved.get("current_index", -1)
-            if 0 <= idx < len(self.playlist): self._play_index(idx)
+            if 0 <= idx < len(self.playlist):
+                self._play_index(idx)
+
 
 # ==============================================================================
 # STANDALONE EXECUTION

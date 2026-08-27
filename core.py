@@ -8,6 +8,7 @@ persistent SQLite store (WAL), and the adaptive system-load Governor.
 Cross-platform OS metrics (ctypes for Windows, /proc for Linux).
 Optimized for low-RAM (8GB) and HDD environments.
 """
+
 import ctypes
 import ctypes.wintypes
 import errno
@@ -38,39 +39,52 @@ EXIT_FINDINGS: int = 1
 EXIT_INTERNAL: int = 2
 EXIT_DEGRADED: int = 3
 
+
 # ==============================================================================
 # ERROR HIERARCHY
 # ==============================================================================
 class LintStackError(Exception):
     """Base exception for lintstack engine failures."""
+
     exit_code: int = EXIT_INTERNAL
+
 
 class ConfigError(LintStackError):
     """Configuration validation or parsing failure."""
 
+
 class StoreError(LintStackError):
     """SQLite store operation failure."""
 
+
 class StoreCorrupt(StoreError):
     """SQLite database corruption detected."""
+
     exit_code = EXIT_DEGRADED
+
 
 class AtomicWriteError(LintStackError):
     """Atomic file write failure."""
 
+
 class LockBusy(LintStackError):
     """Advisory file lock acquisition failure."""
+
     exit_code = EXIT_DEGRADED
+
 
 class RepairFailed(LintStackError):
     """Store repair operation failure."""
+
     exit_code = EXIT_DEGRADED
+
 
 # ==============================================================================
 # CANONICAL MODELS
 # ==============================================================================
 class Severity(IntEnum):
     """Standardized issue severity levels."""
+
     INFO = 10
     LOW = 20
     MEDIUM = 30
@@ -84,9 +98,11 @@ class Severity(IntEnum):
         except KeyError:
             return Severity.MEDIUM
 
+
 @dataclass(slots=True)
 class Issue:
     """Canonical representation of a forensic finding."""
+
     source: str
     code: str
     message: str
@@ -103,14 +119,8 @@ class Issue:
 
     def compute_keys(self) -> "Issue":
         """Generates fingerprint and dedupe keys for the issue."""
-        self.fingerprint = fingerprint(
-            self.source, self.code, self.message,
-            self.path, self.qualname, self.line_start
-        )
-        self.dedupe_key = "\x1f".join((
-            self.source, self.code, self.path,
-            str(self.line_start), self.message
-        ))
+        self.fingerprint = fingerprint(self.source, self.code, self.message, self.path, self.qualname, self.line_start)
+        self.dedupe_key = "\x1f".join((self.source, self.code, self.path, str(self.line_start), self.message))
         return self
 
     def to_row(self, run_id: int, created_utc: str) -> tuple:
@@ -118,17 +128,28 @@ class Issue:
         if not self.fingerprint:
             self.compute_keys()
         return (
-            run_id, self.source, self.code, int(self.severity),
-            self.path, self.line_start, self.line_end, self.col,
-            self.message, self.qualname, self.explanation,
-            self.fingerprint, self.dedupe_key,
+            run_id,
+            self.source,
+            self.code,
+            int(self.severity),
+            self.path,
+            self.line_start,
+            self.line_end,
+            self.col,
+            self.message,
+            self.qualname,
+            self.explanation,
+            self.fingerprint,
+            self.dedupe_key,
             json.dumps(self.payload, sort_keys=True, default=str),
-            created_utc
+            created_utc,
         )
+
 
 @dataclass(slots=True)
 class Config:
     """Engine configuration with Potato PC optimized defaults."""
+
     project_root: Path
     state_dir: Path
     exclude: tuple = tuple()
@@ -153,9 +174,11 @@ class Config:
             state_dir=project_root / ".lintstack",
         )
 
+
 @dataclass(frozen=True, slots=True)
 class Layout:
     """Directory structure layout for the forensic engine."""
+
     root: Path
     state: Path
     db: Path
@@ -171,12 +194,18 @@ class Layout:
     def from_root(root: Path) -> "Layout":
         st = root / ".lintstack"
         return Layout(
-            root=root.resolve(), state=st, db=st / "store.db",
-            config=st / "config.toml", logs=st / "logs",
-            snapshots=st / "snapshots", workspaces=st / "workspaces",
-            boot_lock=st / "boot.lock", db_wal=st / "store.db-wal",
-            db_shm=st / "store.db-shm"
+            root=root.resolve(),
+            state=st,
+            db=st / "store.db",
+            config=st / "config.toml",
+            logs=st / "logs",
+            snapshots=st / "snapshots",
+            workspaces=st / "workspaces",
+            boot_lock=st / "boot.lock",
+            db_wal=st / "store.db-wal",
+            db_shm=st / "store.db-shm",
         )
+
 
 # ==============================================================================
 # UTILITIES
@@ -185,9 +214,11 @@ def iso_utc(ts: float | None = None) -> str:
     """Returns ISO 8601 UTC timestamp."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts or time.time()))
 
+
 def sha256_bytes(data: bytes) -> str:
     """Computes SHA256 hex digest of bytes."""
     return hashlib.sha256(data).hexdigest()
+
 
 def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
     """Computes SHA256 hex digest of a file."""
@@ -200,14 +231,17 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
             h.update(block)
     return h.hexdigest()
 
+
 def tail_text(data: bytes, limit: int = 8000) -> str:
     """Returns tail of bytes decoded as UTF-8."""
     if len(data) > limit:
         data = b"[...truncated...]\n" + data[-limit:]
     return data.decode("utf-8", errors="replace")
 
+
 _LOG_LOCK = threading.Lock()
 _LOG_READY = False
+
 
 def setup_logging(logs_dir: Path, verbose: bool = False) -> logging.Logger:
     """Configures and returns the root lintstack logger."""
@@ -223,20 +257,16 @@ def setup_logging(logs_dir: Path, verbose: bool = False) -> logging.Logger:
         sh.setLevel(logging.DEBUG if verbose else logging.WARNING)
         sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 
-        fh = RotatingFileHandler(
-            logs_dir / "lintstack.log",
-            maxBytes=2_000_000, backupCount=3, encoding="utf-8"
-        )
+        fh = RotatingFileHandler(logs_dir / "lintstack.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
         fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter(
-            "%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"
-        ))
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"))
 
         lg.addHandler(sh)
         lg.addHandler(fh)
         lg.propagate = False
         _LOG_READY = True
         return lg
+
 
 # ==============================================================================
 # ISSUE FINGERPRINTING
@@ -246,6 +276,7 @@ _RX_NUM = re.compile(r"(?<!\w)-?\d+(?:\.\d+)?(?!\w)")
 _RX_QSTR = re.compile(r"'[^']*'|\"[^\"]*\"")
 _RX_WS = re.compile(r"\s+")
 
+
 def normalize_message(message: str) -> str:
     """Normalizes message for deterministic fingerprinting."""
     s = _RX_QSTR.sub("<q>", message)
@@ -253,22 +284,28 @@ def normalize_message(message: str) -> str:
     s = _RX_NUM.sub("<n>", s)
     return _RX_WS.sub(" ", s).strip().lower()
 
-def fingerprint(
-    source: str, code: str, message: str,
-    path: str, qualname: str, line_start: int
-) -> str:
+
+def fingerprint(source: str, code: str, message: str, path: str, qualname: str, line_start: int) -> str:
     """Generates a 16-char deterministic fingerprint for an issue."""
     line_bucket = max(line_start, 0) // 10
-    basis = "\x1f".join((
-        source, code.split(".")[0], normalize_message(message),
-        path.replace(os.sep, "/").lower(), qualname, str(line_bucket)
-    ))
+    basis = "\x1f".join(
+        (
+            source,
+            code.split(".")[0],
+            normalize_message(message),
+            path.replace(os.sep, "/").lower(),
+            qualname,
+            str(line_bucket),
+        )
+    )
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
 
 # ==============================================================================
 # ATOMIC WRITES & LOCKS
 # ==============================================================================
 _TMP_PREFIX = ".lstack-tmp-"
+
 
 def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
     """Writes data to destination atomically using tempfile + os.replace."""
@@ -305,6 +342,7 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
             except FileNotFoundError:
                 pass
 
+
 try:
     import fcntl as _fcntl
 except ImportError:
@@ -315,8 +353,10 @@ try:
 except ImportError:
     _msvcrt = None
 
+
 class FileLock:
     """Cross-platform advisory file lock."""
+
     def __init__(self, path: Path):
         self.path = path
         self._fh: Any | None = None
@@ -364,8 +404,10 @@ class FileLock:
     def __exit__(self, *_exc: object) -> None:
         self.release()
 
+
 class BootLock:
     """Context manager for the engine boot lock."""
+
     def __init__(self, layout: Layout):
         self._lock = FileLock(layout.boot_lock)
 
@@ -376,6 +418,7 @@ class BootLock:
     def __exit__(self, *_exc: object) -> None:
         self._lock.release()
 
+
 # ==============================================================================
 # SYSTEM-LOAD SAMPLING (CROSS-PLATFORM)
 # ==============================================================================
@@ -383,12 +426,14 @@ _PROC_MEMINFO = Path("/proc/meminfo")
 _PROC_LOADAVG = Path("/proc/loadavg")
 _TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 
+
 def cpu_core_count() -> int:
     """Returns the number of available CPU cores."""
     try:
         return max(1, len(os.sched_getaffinity(0)))
     except AttributeError:
         return max(1, os.cpu_count() or 1)
+
 
 def read_psi_percent(kind: str) -> float | None:
     """Reads Linux PSI (Pressure Stall Information). Windows returns None."""
@@ -410,7 +455,7 @@ def read_psi_percent(kind: str) -> float | None:
         for tok in parts[1:]:
             if tok.startswith("avg10="):
                 try:
-                    val = float(tok[len("avg10="):])
+                    val = float(tok[len("avg10=") :])
                 except ValueError:
                     val = None
                 break
@@ -422,9 +467,11 @@ def read_psi_percent(kind: str) -> float | None:
             want_some = val
     return want_full if want_full is not None else want_some
 
+
 def read_mem_available_mb() -> float | None:
     """Cross-platform memory availability. Uses ctypes on Windows, /proc on Linux."""
     if sys.platform == "win32":
+
         class MEMORYSTATUSEX(ctypes.Structure):
             _fields_ = [
                 ("dwLength", ctypes.wintypes.DWORD),
@@ -437,6 +484,7 @@ def read_mem_available_mb() -> float | None:
                 ("ullAvailVirtual", ctypes.c_uint64),
                 ("ullAvailExtendedVirtual", ctypes.c_uint64),
             ]
+
         stat = MEMORYSTATUSEX()
         stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
@@ -452,6 +500,7 @@ def read_mem_available_mb() -> float | None:
         pass
     return None
 
+
 def read_load1() -> float | None:
     """Reads 1-minute load average. Windows returns None."""
     if sys.platform == "win32":
@@ -461,6 +510,7 @@ def read_load1() -> float | None:
             return float(fh.read().split()[0])
     except (OSError, IndexError, ValueError):
         return None
+
 
 def _proc_self_cpu_ticks() -> tuple:
     """Reads /proc/self/stat for CPU ticks. Windows returns (0, 0)."""
@@ -474,9 +524,11 @@ def _proc_self_cpu_ticks() -> tuple:
     except (OSError, IndexError, ValueError):
         return 0, 0
 
+
 @dataclass(frozen=True, slots=True)
 class LoadSample:
     """Snapshot of system load metrics."""
+
     psi_mem: float | None
     psi_io: float | None
     avail_mb: float | None
@@ -492,6 +544,7 @@ class LoadSample:
             return "MEMONLY"
         return "FULL"
 
+
 # ==============================================================================
 # ADAPTIVE GOVERNOR
 # ==============================================================================
@@ -501,6 +554,7 @@ class Governor:
     Optimized for 8GB RAM / HDD: Aggressively yields to OS/Chrome
     when memory drops below 1.2GB. Falls back to MEMONLY mode on Windows.
     """
+
     SAMPLE_INTERVAL_S = 0.10
     BLAME_CPU_PCT = 50.0
 
@@ -508,7 +562,7 @@ class Governor:
         self,
         cfg: Config,
         recorder: Callable[[int, int, str], None] | None = None,
-        renice_hook: Callable[[int], None] | None = None
+        renice_hook: Callable[[int], None] | None = None,
     ) -> None:
         self.cfg = cfg
         self.recorder = recorder
@@ -570,9 +624,12 @@ class Governor:
         self._last_sample_mono = now
 
         s = LoadSample(
-            psi_mem=psi_mem, psi_io=psi_io, avail_mb=avail,
+            psi_mem=psi_mem,
+            psi_io=psi_io,
+            avail_mb=avail,
             load1_ratio=(load / cpu_core_count()) if load is not None else None,
-            self_cpu_pct=pct, mono=now
+            self_cpu_pct=pct,
+            mono=now,
         )
         self._last = s
         self.mode = s.degrade() if self.cfg.gov_enabled else "FIXED-POLITE"
@@ -598,7 +655,7 @@ class Governor:
         self._hist.append(cls)
         n = len(self._hist)
 
-        pause_avail_instant = (s.avail_mb is not None and s.avail_mb < self.cfg.gov_pause_avail_mb)
+        pause_avail_instant = s.avail_mb is not None and s.avail_mb < self.cfg.gov_pause_avail_mb
         if not self._in_pause and pause_avail_instant:
             self._enter_pause(reason="avail-floor")
 
@@ -674,7 +731,7 @@ class Governor:
             forced_deadline = entered + self.cfg.gov_max_pause_s
             while True:
                 time.sleep(0.20)
-                s = self.sample()
+                _ = self.sample()
                 if self._recovery_hits >= 2:
                     self._exit_pause(forced=False)
                     break
@@ -693,25 +750,28 @@ class Governor:
         """Returns current governor state as a dictionary."""
         s = self._last
         return {
-            "mode": self.mode, "level": self.active_level, "in_pause": self._in_pause,
-            "psi_mem": s.psi_mem if s else None, "psi_io": s.psi_io if s else None,
+            "mode": self.mode,
+            "level": self.active_level,
+            "in_pause": self._in_pause,
+            "psi_mem": s.psi_mem if s else None,
+            "psi_io": s.psi_io if s else None,
             "avail_mb": s.avail_mb if s else None,
-            "self_cpu_pct": round(s.self_cpu_pct, 2) if s else None
+            "self_cpu_pct": round(s.self_cpu_pct, 2) if s else None,
         }
+
 
 # ==============================================================================
 # PERSISTENT STORE (SQLite WAL)
 # ==============================================================================
 class Store:
     """Thread-serialized SQLite facade. WAL journal, optimized for low RAM."""
+
     def __init__(self, db_path: Path) -> None:
         self.path = db_path
         self._lock = threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(
-            str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None
-        )
+        self._conn = sqlite3.connect(str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None)
         # Potato PC optimized: 2MB cache, WAL mode
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -733,8 +793,7 @@ class Store:
         """Starts a new forensic run and returns the run ID."""
         with self._lock:
             cursor = self._conn.execute(
-                "INSERT INTO runs (verb, mode, started_utc) VALUES (?, ?, ?)",
-                (verb, mode, iso_utc())
+                "INSERT INTO runs (verb, mode, started_utc) VALUES (?, ?, ?)", (verb, mode, iso_utc())
             )
             return cursor.lastrowid
 
@@ -743,9 +802,7 @@ class Store:
         with self._lock:
             sets = ", ".join(f"{k} = ?" for k in fields)
             vals = list(fields.values()) + [run_id]
-            self._conn.execute(
-                f"UPDATE runs SET {sets} WHERE id = ?", vals
-            )
+            self._conn.execute(f"UPDATE runs SET {sets} WHERE id = ?", vals)
 
     def add_issues(self, run_id: int, issues: Iterator[Issue]) -> int:
         """Bulk inserts issues for a run."""
@@ -757,7 +814,7 @@ class Store:
                 "line_start, line_end, col, message, qualname, explanation, "
                 "fingerprint, dedupe_key, payload, created_utc) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (issue.to_row(run_id, created) for issue in issues)
+                (issue.to_row(run_id, created) for issue in issues),
             )
             count = cursor.rowcount
         return count
@@ -767,5 +824,5 @@ class Store:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO journal (actor, action, detail, created_utc) VALUES (?, ?, ?, ?)",
-                (actor, action, json.dumps(detail or {}), iso_utc())
+                (actor, action, json.dumps(detail or {}), iso_utc()),
             )

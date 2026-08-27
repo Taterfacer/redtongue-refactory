@@ -6,6 +6,7 @@ Native PyQt6 productivity module featuring Pomodoro timer, task management,
 notes, statistics, and alarms. Includes a pure-Python WAV synthesizer for
 audio cues without external audio dependencies.
 """
+
 import json
 import os
 import shutil
@@ -17,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
@@ -54,11 +55,13 @@ APP_NAME = "RedTongue Focus"
 CONFIG_DIR = Path.home() / ".redtongue" / "focus"
 DATA_FILE = CONFIG_DIR / "focus_data.json"
 
+
 # ==============================================================================
 # DATA MANAGER (Thread-safe, Atomic JSON, Backup Rotation)
 # ==============================================================================
 class DataManager:
     """Manages persistent state with atomic writes and 3-generation backup."""
+
     _MAX_BACKUPS = 3
 
     def __init__(self) -> None:
@@ -94,9 +97,12 @@ class DataManager:
             "tasks": [],
             "notes": [{"id": "default", "title": "Quick Notes", "content": "", "updated": ""}],
             "settings": {
-                "focus_duration": 25, "short_break": 5, "long_break": 15,
-                "voice_volume": 80, "hotkeys_enabled": True
-            }
+                "focus_duration": 25,
+                "short_break": 5,
+                "long_break": 15,
+                "voice_volume": 80,
+                "hotkeys_enabled": True,
+            },
         }
 
     def save(self, immediate: bool = False) -> None:
@@ -210,11 +216,13 @@ class DataManager:
                     break
         self.save()
 
+
 # ==============================================================================
 # SOUND SYNTHESIZER (Pure Python WAV Generation)
 # ==============================================================================
 class SoundSynthesizer:
     """Generates audio cues as WAV files without external dependencies."""
+
     SAMPLE_RATE = 44100
 
     @staticmethod
@@ -249,6 +257,7 @@ class SoundSynthesizer:
                 val = int(val * decay)
                 wf.writeframes(struct.pack("<h", max(-32768, min(32767, val))))
 
+
 # ==============================================================================
 # UI PAGES
 # ==============================================================================
@@ -276,7 +285,9 @@ class TimerPage(QWidget):
         layout.addWidget(self.mode_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.time_label = QLabel("25:00")
-        self.time_label.setStyleSheet(f"font-size: 96px; font-weight: bold; color: {C_WHITE}; font-family: 'Consolas', monospace;")
+        self.time_label.setStyleSheet(
+            f"font-size: 96px; font-weight: bold; color: {C_WHITE}; font-family: 'Consolas', monospace;"
+        )
         layout.addWidget(self.time_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.progress_bar = QFrame()
@@ -402,6 +413,7 @@ class TimerPage(QWidget):
             pct = 1.0 - (self.remaining_s / self.total_s)
             self.progress_fill.setFixedWidth(int(500 * pct))
 
+
 class TasksPage(QWidget):
     def __init__(self, dm: DataManager):
         super().__init__()
@@ -439,7 +451,8 @@ class TasksPage(QWidget):
 
     def _add_task(self):
         text = self.input.text().strip()
-        if not text: return
+        if not text:
+            return
         self.dm.add_task(text)
         self.input.clear()
         self._load_tasks()
@@ -462,9 +475,11 @@ class TasksPage(QWidget):
 
     def _show_context_menu(self, pos):
         item = self.list.itemAt(pos)
-        if not item: return
+        if not item:
+            return
 
         from PyQt6.QtWidgets import QMenu
+
         menu = QMenu(self)
         menu.setStyleSheet(f"background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER};")
 
@@ -484,6 +499,7 @@ class TasksPage(QWidget):
             task_id = item.data(Qt.ItemDataRole.UserRole)
             self.dm.delete_task(task_id)
             self._load_tasks()
+
 
 class NotesPage(QWidget):
     def __init__(self, dm: DataManager):
@@ -528,6 +544,7 @@ class NotesPage(QWidget):
         if notes:
             self.dm.update_note(notes[0]["id"], self.editor.toPlainText())
 
+
 class StatsPage(QWidget):
     def __init__(self, dm: DataManager):
         super().__init__()
@@ -551,20 +568,23 @@ class StatsPage(QWidget):
         # Clear existing
         while self.stats_layout.count():
             w = self.stats_layout.takeAt(0).widget()
-            if w: w.deleteLater()
+            if w:
+                w.deleteLater()
 
         sessions = self.dm.get_sessions()
         tasks = self.dm.get_tasks("completed")
 
         today = datetime.now().strftime("%Y-%m-%d")
-        today_sessions = [s for s in sessions if s.get("date") == today and s.get("type") == "focus" and s.get("completed")]
+        today_sessions = [
+            s for s in sessions if s.get("date") == today and s.get("type") == "focus" and s.get("completed")
+        ]
         today_mins = sum(s.get("duration", 0) for s in today_sessions) // 60
         tasks_done = sum(1 for t in tasks if t.get("completed_date", "").startswith(today))
 
         for label, val, color in [
             ("Focus Today", f"{today_mins}m", C_RED),
             ("Sessions", str(len(today_sessions)), C_YELLOW),
-            ("Tasks Done", str(tasks_done), C_GREEN)
+            ("Tasks Done", str(tasks_done), C_GREEN),
         ]:
             card = QFrame()
             card.setObjectName("Panel")
@@ -581,6 +601,7 @@ class StatsPage(QWidget):
             c_layout.addWidget(t_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
             self.stats_layout.addWidget(card)
+
 
 # ==============================================================================
 # MAIN WINDOW
@@ -639,12 +660,7 @@ class FocusStudioWindow(QMainWindow):
 
         # Nav Buttons
         self.nav_btns = []
-        nav_items = [
-            ("⏱  Timer", 0),
-            ("☑  Tasks", 1),
-            ("📝  Notes", 2),
-            ("📊  Stats", 3)
-        ]
+        nav_items = [("⏱  Timer", 0), ("☑  Tasks", 1), ("📝  Notes", 2), ("📊  Stats", 3)]
         for text, idx in nav_items:
             btn = QPushButton(text)
             btn.setCheckable(True)
@@ -668,8 +684,9 @@ class FocusStudioWindow(QMainWindow):
         for i, btn in enumerate(self.nav_btns):
             btn.setChecked(i == idx)
 
-        if idx == 3: # Stats
+        if idx == 3:  # Stats
             self.stats_page.refresh()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

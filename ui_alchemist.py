@@ -6,6 +6,7 @@ Converts images, audio, video, and documents.
 Features auto-provisioning of external tools (FFmpeg, Tesseract),
 multi-threaded batch processing, and a Potato PC optimized UI.
 """
+
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,7 @@ QScrollBar:vertical {{ background: {C_BG}; width: 8px; }}
 QScrollBar::handle:vertical {{ background: #333333; border-radius: 4px; }}
 """
 
+
 # ==============================================================================
 # SETTINGS & REGISTRY
 # ==============================================================================
@@ -86,6 +88,7 @@ class ConvertSettings:
     ocr: bool = False
     conflict_mode: str = "rename"  # rename, overwrite, skip
 
+
 class ConverterRegistry:
     _converters: dict[tuple[str, str], Callable] = {}
 
@@ -94,6 +97,7 @@ class ConverterRegistry:
         def decorator(func):
             cls._converters[(src_ext.lower(), dst_ext.lower())] = func
             return func
+
         return decorator
 
     @classmethod
@@ -104,54 +108,69 @@ class ConverterRegistry:
     def list_targets(cls, src_ext: str) -> list[str]:
         return sorted([dst for src, dst in cls._converters.keys() if src == src_ext.lower()])
 
+
 def get_ext(path: str) -> str:
     return Path(path).suffix.lower().lstrip(".")
 
+
 def unique_output_path(path: Path) -> Path:
-    if not path.exists(): return path
+    if not path.exists():
+        return path
     base, ext = path.stem, path.suffix
     i = 1
-    while (path.parent / f"{base}_{i}{ext}").exists(): i += 1
+    while (path.parent / f"{base}_{i}{ext}").exists():
+        i += 1
     return path.parent / f"{base}_{i}{ext}"
+
 
 # --- Core Converters (Images via PIL) ---
 try:
     from PIL import Image
+
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
 
 @ConverterRegistry.register("png", "jpg")
 @ConverterRegistry.register("bmp", "jpg")
 @ConverterRegistry.register("tiff", "jpg")
 @ConverterRegistry.register("webp", "jpg")
 def img_to_jpg(src: Path, dst: Path, settings: ConvertSettings):
-    if not HAS_PIL: raise RuntimeError("Pillow not installed")
+    if not HAS_PIL:
+        raise RuntimeError("Pillow not installed")
     img = Image.open(src)
-    if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
     if settings.resolution:
         w, h = map(int, settings.resolution.split("x"))
         img = img.resize((w, h), Image.LANCZOS)
     img.save(dst, "JPEG", quality=settings.quality)
 
+
 @ConverterRegistry.register("jpg", "png")
 @ConverterRegistry.register("bmp", "png")
 @ConverterRegistry.register("webp", "png")
 def img_to_png(src: Path, dst: Path, settings: ConvertSettings):
-    if not HAS_PIL: raise RuntimeError("Pillow not installed")
+    if not HAS_PIL:
+        raise RuntimeError("Pillow not installed")
     img = Image.open(src)
     if settings.resolution:
         w, h = map(int, settings.resolution.split("x"))
         img = img.resize((w, h), Image.LANCZOS)
     img.save(dst, "PNG")
 
+
 @ConverterRegistry.register("jpg", "pdf")
 @ConverterRegistry.register("png", "pdf")
 def img_to_pdf(src: Path, dst: Path, settings: ConvertSettings):
-    if not HAS_PIL: raise RuntimeError("Pillow not installed")
+    if not HAS_PIL:
+        raise RuntimeError("Pillow not installed")
     img = Image.open(src)
-    if img.mode == "RGBA": img = img.convert("RGB")
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
     img.save(dst, "PDF", resolution=settings.dpi)
+
 
 # --- Core Converters (Audio/Video via FFmpeg) ---
 def run_ffmpeg(src: Path, dst: Path, args: list[str], progress_cb: Callable | None = None):
@@ -160,12 +179,14 @@ def run_ffmpeg(src: Path, dst: Path, args: list[str], progress_cb: Callable | No
     if proc.returncode != 0:
         raise RuntimeError(f"FFmpeg failed: {proc.stderr[-200:]}")
 
+
 @ConverterRegistry.register("mp3", "wav")
 @ConverterRegistry.register("flac", "wav")
 @ConverterRegistry.register("ogg", "wav")
 @ConverterRegistry.register("m4a", "wav")
 def audio_to_wav(src: Path, dst: Path, settings: ConvertSettings):
     run_ffmpeg(src, dst, ["-codec:a", "pcm_s16le"])
+
 
 @ConverterRegistry.register("wav", "mp3")
 @ConverterRegistry.register("flac", "mp3")
@@ -174,6 +195,7 @@ def audio_to_wav(src: Path, dst: Path, settings: ConvertSettings):
 def audio_to_mp3(src: Path, dst: Path, settings: ConvertSettings):
     run_ffmpeg(src, dst, ["-codec:a", "libmp3lame", "-b:a", settings.bitrate])
 
+
 @ConverterRegistry.register("mp4", "mp3")
 @ConverterRegistry.register("mkv", "mp3")
 @ConverterRegistry.register("avi", "mp3")
@@ -181,15 +203,19 @@ def audio_to_mp3(src: Path, dst: Path, settings: ConvertSettings):
 def video_extract_mp3(src: Path, dst: Path, settings: ConvertSettings):
     run_ffmpeg(src, dst, ["-vn", "-codec:a", "libmp3lame", "-b:a", settings.bitrate])
 
+
 @ConverterRegistry.register("avi", "mp4")
 @ConverterRegistry.register("mkv", "mp4")
 @ConverterRegistry.register("mov", "mp4")
 @ConverterRegistry.register("webm", "mp4")
 def video_to_mp4(src: Path, dst: Path, settings: ConvertSettings):
     cmd = ["-codec:v", "libx264", "-preset", "fast", "-crf", "23", "-codec:a", "aac"]
-    if settings.resolution: cmd += ["-vf", f"scale={settings.resolution.replace('x', ':')}"]
-    if settings.fps > 0: cmd += ["-r", str(settings.fps)]
+    if settings.resolution:
+        cmd += ["-vf", f"scale={settings.resolution.replace('x', ':')}"]
+    if settings.fps > 0:
+        cmd += ["-r", str(settings.fps)]
     run_ffmpeg(src, dst, cmd)
+
 
 # ==============================================================================
 # TOOL MANAGER (Background Provisioning)
@@ -215,13 +241,14 @@ class ToolManager(QThread):
 
         self.tools_ready.emit()
 
+
 # ==============================================================================
 # CONVERSION WORKER
 # ==============================================================================
 class ConversionWorker(QThread):
     progress = pyqtSignal(int, int, str)  # current, total, filename
-    log_message = pyqtSignal(str, str)    # message, level (info, success, error)
-    finished_batch = pyqtSignal(int, int) # ok_count, fail_count
+    log_message = pyqtSignal(str, str)  # message, level (info, success, error)
+    finished_batch = pyqtSignal(int, int)  # ok_count, fail_count
 
     def __init__(self, tasks: list[tuple[Path, str, Path, ConvertSettings]]):
         super().__init__()
@@ -236,7 +263,8 @@ class ConversionWorker(QThread):
         total = len(self.tasks)
 
         for i, (src, dst_ext, out_dir, settings) in enumerate(self.tasks):
-            if self._stop: break
+            if self._stop:
+                break
 
             self.progress.emit(i + 1, total, src.name)
 
@@ -261,6 +289,7 @@ class ConversionWorker(QThread):
                 fail += 1
 
         self.finished_batch.emit(ok, fail)
+
 
 # ==============================================================================
 # MAIN WINDOW
@@ -334,7 +363,7 @@ class AlchemistWindow(QMainWindow):
 
         quality_layout = QHBoxLayout()
         quality_layout.addWidget(QLabel("Quality (1-100):"))
-        self.quality_spin = QComboBox() # Using combo for simplicity in this refactor
+        self.quality_spin = QComboBox()  # Using combo for simplicity in this refactor
         self.quality_spin.addItems(["90", "80", "70", "50"])
         self.quality_spin.setCurrentText("90")
         quality_layout.addWidget(self.quality_spin)
@@ -411,7 +440,8 @@ class AlchemistWindow(QMainWindow):
 
     def _browse_output(self):
         d = QFileDialog.getExistingDirectory(self, "Output Directory")
-        if d: self.out_dir_edit.setText(d)
+        if d:
+            self.out_dir_edit.setText(d)
 
     def _update_targets(self):
         # In a full app, this would dynamically update based on selected file types
@@ -456,10 +486,14 @@ class AlchemistWindow(QMainWindow):
             src_ext = get_ext(src)
             if fmt == "auto":
                 # Simple auto-detect logic
-                if src_ext in ("wav", "flac", "ogg", "m4a"): target = "mp3"
-                elif src_ext in ("jpg", "jpeg", "png", "bmp"): target = "png"
-                elif src_ext in ("mp4", "mkv", "avi"): target = "mp4"
-                else: continue
+                if src_ext in ("wav", "flac", "ogg", "m4a"):
+                    target = "mp3"
+                elif src_ext in ("jpg", "jpeg", "png", "bmp"):
+                    target = "png"
+                elif src_ext in ("mp4", "mkv", "avi"):
+                    target = "mp4"
+                else:
+                    continue
             else:
                 target = fmt
 
@@ -487,8 +521,10 @@ class AlchemistWindow(QMainWindow):
 
     def _log(self, msg, level):
         color = C_WHITE
-        if level == "success": color = C_SUCCESS
-        elif level == "error": color = C_ERROR
+        if level == "success":
+            color = C_SUCCESS
+        elif level == "error":
+            color = C_ERROR
         self.log_text.append(f'<span style="color:{color}">{msg}</span>')
 
     def _on_finished(self, ok, fail):
@@ -497,7 +533,8 @@ class AlchemistWindow(QMainWindow):
         self._log(f"Batch complete: {ok} OK, {fail} Failed.", "success")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
         for url in event.mimeData().urls():
@@ -506,6 +543,7 @@ class AlchemistWindow(QMainWindow):
                 if p.is_file() and p not in self.files:
                     self.files.append(p)
                     self.file_list.addItem(p.name)
+
 
 # ==============================================================================
 # STANDALONE EXECUTION

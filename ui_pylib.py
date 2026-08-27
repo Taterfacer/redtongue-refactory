@@ -6,6 +6,7 @@ Scans installed packages, manages virtual environments, and installs
 curated package stacks via a threaded pip worker.
 Optimized for low-RAM environments with native QTreeWidget rendering.
 """
+
 import json
 import subprocess
 import sys
@@ -64,60 +65,108 @@ QScrollBar::handle:vertical:hover {{ background: {C_RED}; }}
 # ==============================================================================
 PACKAGE_CATALOG: dict[str, list[tuple[str, str]]] = {
     "Core & Utilities": [
-        ("pip", "latest"), ("setuptools", "latest"), ("wheel", "latest"),
-        ("virtualenv", "latest"), ("python-dotenv", "latest"), ("rich", "latest"),
-        ("typer", "latest"), ("click", "latest"), ("tqdm", "latest"),
-        ("psutil", "latest"), ("pyyaml", "latest"), ("pydantic", "latest"),
-        ("loguru", "latest"), ("httpx", "latest"), ("requests", "latest"),
+        ("pip", "latest"),
+        ("setuptools", "latest"),
+        ("wheel", "latest"),
+        ("virtualenv", "latest"),
+        ("python-dotenv", "latest"),
+        ("rich", "latest"),
+        ("typer", "latest"),
+        ("click", "latest"),
+        ("tqdm", "latest"),
+        ("psutil", "latest"),
+        ("pyyaml", "latest"),
+        ("pydantic", "latest"),
+        ("loguru", "latest"),
+        ("httpx", "latest"),
+        ("requests", "latest"),
     ],
     "GUI & Desktop Apps": [
-        ("PyQt6", "latest"), ("PyQt6-Qt6", "latest"), ("PyQt6-sip", "latest"),
-        ("PySide6", "latest"), ("customtkinter", "latest"), ("dearpygui", "latest"),
-        ("kivy", "latest"), ("pystray", "latest"), ("pynput", "latest"),
+        ("PyQt6", "latest"),
+        ("PyQt6-Qt6", "latest"),
+        ("PyQt6-sip", "latest"),
+        ("PySide6", "latest"),
+        ("customtkinter", "latest"),
+        ("dearpygui", "latest"),
+        ("kivy", "latest"),
+        ("pystray", "latest"),
+        ("pynput", "latest"),
     ],
     "Data Science & Math": [
-        ("numpy", "latest"), ("scipy", "latest"), ("pandas", "latest"),
-        ("matplotlib", "latest"), ("seaborn", "latest"), ("plotly", "latest"),
-        ("openpyxl", "latest"), ("statsmodels", "latest"), ("sympy", "latest"),
-        ("scikit-learn", "latest"), ("joblib", "latest"),
+        ("numpy", "latest"),
+        ("scipy", "latest"),
+        ("pandas", "latest"),
+        ("matplotlib", "latest"),
+        ("seaborn", "latest"),
+        ("plotly", "latest"),
+        ("openpyxl", "latest"),
+        ("statsmodels", "latest"),
+        ("sympy", "latest"),
+        ("scikit-learn", "latest"),
+        ("joblib", "latest"),
     ],
     "AI & Machine Learning": [
-        ("torch", "latest"), ("torchvision", "latest"), ("torchaudio", "latest"),
-        ("transformers", "latest"), ("accelerate", "latest"),
-        ("sentence-transformers", "latest"), ("spacy", "latest"),
-        ("nltk", "latest"), ("huggingface-hub", "latest"),
+        ("torch", "latest"),
+        ("torchvision", "latest"),
+        ("torchaudio", "latest"),
+        ("transformers", "latest"),
+        ("accelerate", "latest"),
+        ("sentence-transformers", "latest"),
+        ("spacy", "latest"),
+        ("nltk", "latest"),
+        ("huggingface-hub", "latest"),
     ],
     "Web Development": [
-        ("flask", "latest"), ("django", "latest"), ("djangorestframework", "latest"),
-        ("fastapi", "latest"), ("uvicorn", "latest"), ("gunicorn", "latest"),
-        ("sqlalchemy", "latest"), ("alembic", "latest"), ("redis", "latest"),
-        ("celery", "latest"), ("beautifulsoup4", "latest"), ("lxml", "latest"),
+        ("flask", "latest"),
+        ("django", "latest"),
+        ("djangorestframework", "latest"),
+        ("fastapi", "latest"),
+        ("uvicorn", "latest"),
+        ("gunicorn", "latest"),
+        ("sqlalchemy", "latest"),
+        ("alembic", "latest"),
+        ("redis", "latest"),
+        ("celery", "latest"),
+        ("beautifulsoup4", "latest"),
+        ("lxml", "latest"),
     ],
     "Testing & Quality": [
-        ("pytest", "latest"), ("pytest-cov", "latest"), ("pytest-mock", "latest"),
-        ("coverage", "latest"), ("mypy", "latest"), ("pylint", "latest"),
-        ("flake8", "latest"), ("black", "latest"), ("isort", "latest"),
-        ("bandit", "latest"), ("pre-commit", "latest"),
+        ("pytest", "latest"),
+        ("pytest-cov", "latest"),
+        ("pytest-mock", "latest"),
+        ("coverage", "latest"),
+        ("mypy", "latest"),
+        ("pylint", "latest"),
+        ("flake8", "latest"),
+        ("black", "latest"),
+        ("isort", "latest"),
+        ("bandit", "latest"),
+        ("pre-commit", "latest"),
     ],
     "DevOps & Cloud": [
-        ("docker", "latest"), ("boto3", "latest"), ("botocore", "latest"),
-        ("awscli", "latest"), ("paramiko", "latest"), ("ansible-core", "latest"),
+        ("docker", "latest"),
+        ("boto3", "latest"),
+        ("botocore", "latest"),
+        ("awscli", "latest"),
+        ("paramiko", "latest"),
+        ("ansible-core", "latest"),
     ],
 }
+
 
 # ==============================================================================
 # BACKGROUND WORKERS
 # ==============================================================================
 class PipListWorker(QThread):
     """Scans installed packages and emits the list."""
+
     finished_scan = pyqtSignal(dict)  # {name_lower: version}
     error = pyqtSignal(str)
 
     def run(self):
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "list", "--format=json"],
-                capture_output=True, text=True, timeout=60
+                [sys.executable, "-m", "pip", "list", "--format=json"], capture_output=True, text=True, timeout=60
             )
             if result.returncode == 0:
                 packages = json.loads(result.stdout)
@@ -128,8 +177,10 @@ class PipListWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+
 class PipInstallWorker(QThread):
     """Installs packages and streams output."""
+
     log_output = pyqtSignal(str)
     finished_install = pyqtSignal(bool, str)  # success, message
 
@@ -145,8 +196,7 @@ class PipInstallWorker(QThread):
         cmd = [sys.executable, "-m", "pip", "install", *self.packages, "--disable-pip-version-check"]
         try:
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, universal_newlines=True
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True
             )
             for line in process.stdout:
                 if self._stop:
@@ -163,6 +213,7 @@ class PipInstallWorker(QThread):
                 self.finished_install.emit(False, f"Installation failed with code {process.returncode}.")
         except Exception as e:
             self.finished_install.emit(False, str(e))
+
 
 # ==============================================================================
 # MAIN WINDOW
@@ -211,7 +262,7 @@ class PyLibWindow(QMainWindow):
         main_layout.addWidget(toolbar)
 
         # Main Splitter
-        splitter = QFrame() # Using QFrame as container for layout
+        splitter = QFrame()  # Using QFrame as container for layout
         splitter.setObjectName("Panel")
         split_layout = QHBoxLayout(splitter)
         split_layout.setContentsMargins(0, 0, 0, 0)
@@ -238,11 +289,11 @@ class PyLibWindow(QMainWindow):
 
         self.log_text = QPlainTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMaximumBlockCount(500) # Prevent memory bloat
+        self.log_text.setMaximumBlockCount(500)  # Prevent memory bloat
         log_layout.addWidget(self.log_text)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0) # Indeterminate
+        self.progress_bar.setRange(0, 0)  # Indeterminate
         self.progress_bar.hide()
         log_layout.addWidget(self.progress_bar)
 
@@ -323,9 +374,12 @@ class PyLibWindow(QMainWindow):
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Installation",
-            f"Install {len(packages)} package(s)?\n\n" + ", ".join(packages[:10]) + ("..." if len(packages) > 10 else ""),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self,
+            "Confirm Installation",
+            f"Install {len(packages)} package(s)?\n\n"
+            + ", ".join(packages[:10])
+            + ("..." if len(packages) > 10 else ""),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.No:
@@ -359,6 +413,7 @@ class PyLibWindow(QMainWindow):
             self._refresh_packages()
         else:
             QMessageBox.warning(self, "Installation Failed", msg)
+
 
 # ==============================================================================
 # STANDALONE EXECUTION
