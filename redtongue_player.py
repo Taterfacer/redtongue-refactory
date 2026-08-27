@@ -114,12 +114,14 @@ class ShuffleQueue:
         self._size: int = 0
 
     def reset(self, size: int):
+        """Resets the shuffle queue state for a new playlist size."""
         self._size = size
         self._unplayed = list(range(size))
         random.shuffle(self._unplayed)
         self._history = []
 
     def sync(self, size: int):
+        """Synchronizes queue when playlist size changes."""
         if size == self._size:
             return
         if size > self._size:
@@ -132,12 +134,14 @@ class ShuffleQueue:
         self._size = size
 
     def mark_played(self, idx: int):
+        """Marks a track index as played and adds to history."""
         if idx in self._unplayed:
             self._unplayed.remove(idx)
         if idx not in self._history:
             self._history.append(idx)
 
     def next(self, size: int, current_index: int) -> int:
+        """Returns next random track index from unplayed queue."""
         if size <= 0:
             return -1
         self.sync(size)
@@ -155,6 +159,7 @@ class ShuffleQueue:
         return idx
 
     def previous(self, current_index: int) -> int:
+        """Returns previous track index from play history."""
         if len(self._history) < 2:
             return -1
         if self._history[-1] == current_index:
@@ -179,6 +184,7 @@ class MediaLibrary:
         self.folders: list[str] = self.data.get("folders", [])
 
     def save(self):
+        """Saves library state to disk atomically."""
         atomic_write_json(
             LIBRARY_FILE, {"tracks": self.tracks, "folders": self.folders}
         )
@@ -229,6 +235,7 @@ class MediaLibrary:
         return track
 
     def add_folder(self, folder: str) -> int:
+        """Adds a folder to the library and scans for audio files. Returns count of tracks added."""
         folder_path = Path(folder)
         if not folder_path.exists():
             return 0
@@ -251,6 +258,7 @@ class MediaLibrary:
         return added
 
     def remove_folder(self, folder: str):
+        """Removes a folder and its tracks from the library."""
         if folder in self.folders:
             self.folders.remove(folder)
             self.tracks = [t for t in self.tracks if not t["path"].startswith(folder)]
@@ -285,6 +293,7 @@ class PlaylistWidget(QListWidget):
         )
 
     def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handles drag enter event for file drops."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:

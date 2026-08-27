@@ -101,6 +101,7 @@ class ChatWorker(QThread):
         self.context = context
 
     def run(self):
+        """Executes AI agent streaming in background thread with asyncio event loop."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -143,6 +144,7 @@ class LintWorker(QThread):
         self._is_running = True
 
     def run(self):
+        """Discovers and analyzes Python files in batches, emitting issues progressively."""
         try:
             self.progress.emit("Discovering files...")
             files = []
@@ -187,6 +189,7 @@ class LintWorker(QThread):
             self.progress.emit(f"Error: {e}")
 
     def stop(self):
+        """Stops the linting worker."""
         self._is_running = False
 
 
@@ -226,6 +229,7 @@ class PythonHighlighter(QSyntaxHighlighter):
             self.rules.append((f"\\b{kw}\\b", kw_fmt))
 
     def highlightBlock(self, text):
+        """Applies syntax highlighting rules to a text block."""
         for pattern, fmt in self.rules:
             import re
 
@@ -246,6 +250,7 @@ class CodeEditor(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
     def load_file(self, path: Path):
+        """Loads a file into the editor with syntax highlighting."""
         try:
             self.setPlainText(path.read_text(encoding="utf-8"))
             self.document().setModified(False)
@@ -253,6 +258,7 @@ class CodeEditor(QPlainTextEdit):
             self.setPlainText(f"# Error loading file: {e}")
 
     def save_file(self, path: Path):
+        """Saves editor content to file and marks document as unmodified."""
         try:
             path.write_text(self.toPlainText(), encoding="utf-8")
             self.document().setModified(False)
@@ -274,6 +280,7 @@ class ChatPanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the chat panel UI with display area and input controls."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -303,12 +310,14 @@ class ChatPanel(QWidget):
         layout.addLayout(input_layout)
 
     def _activate_stt(self):
+        """Activates speech-to-text listening in background thread."""
         self.mic_btn.setText("🎙️...")
         self.mic_btn.setEnabled(False)
         # Run STT in a separate thread to avoid blocking UI
         threading.Thread(target=self._stt_worker, daemon=True).start()
 
     def _stt_worker(self):
+        """Background worker for speech-to-text transcription."""
         text = self.stt.listen_and_transcribe()
         # Update UI on main thread
         from PyQt6.QtCore import QMetaObject, Qt
@@ -323,10 +332,12 @@ class ChatPanel(QWidget):
         self.mic_btn.setEnabled(True)
 
     def _update_input(self, text):
+        """Updates input field with transcribed text from STT."""
         if text:
             self.input.setText(text)
 
     def _send_message(self):
+        """Sends user message to AI agent and starts streaming response."""
         text = self.input.text().strip()
         if not text or (self.worker and self.worker.isRunning()):
             return
@@ -343,18 +354,22 @@ class ChatPanel(QWidget):
         self.worker.start()
 
     def _append_token(self, token):
+        """Appends a token to the chat display during streaming."""
         cursor = self.display.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.insertText(token)
         self.display.setTextCursor(cursor)
 
     def _append_tool(self, name, output):
+        """Appends tool execution result to chat display."""
         self.display.appendPlainText(f"\n[TOOL: {name}] {output}\n")
 
     def _append_error(self, error):
+        """Appends error message to chat display."""
         self.display.appendPlainText(f"\n[ERROR] {error}\n")
 
     def _chat_finished(self):
+        """Handles chat stream completion."""
         self.display.appendPlainText("\n")
         self.history.append({"role": "assistant", "content": "Response complete."})
 
@@ -370,6 +385,7 @@ class LintPanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the lint panel UI with control buttons and results table."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -401,6 +417,7 @@ class LintPanel(QWidget):
         layout.addWidget(self.table, 1)
 
     def _start_lint(self):
+        """Starts or stops the forensic lint worker."""
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             return
@@ -414,6 +431,7 @@ class LintPanel(QWidget):
         self.worker.start()
 
     def _on_batch(self, issues):
+        """Handles batch of issues from worker and updates table display."""
         self.all_issues.extend(issues)
         for issue in issues:
             row = self.table.rowCount()
@@ -428,10 +446,12 @@ class LintPanel(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(issue["msg"]))
 
     def _on_finished(self, summary):
+        """Handles lint completion and updates status display."""
         self.run_btn.setText("RUN FORENSIC LINT")
         self.status_lbl.setText(f"Complete: {len(self.all_issues)} issues found.")
 
     def _push_to_ai(self):
+        """Pushes top issues to AI chat for analysis."""
         if not self.all_issues:
             return
         critical = [
@@ -449,6 +469,8 @@ class LintPanel(QWidget):
 # MAIN WINDOW
 # ==============================================================================
 class RefactoryMainWindow(QMainWindow):
+    """Main application window for RedTongue Refactory with file explorer, editor, lint, and AI chat."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RedTongue Refactory v4.0.0")
@@ -536,9 +558,11 @@ class RefactoryMainWindow(QMainWindow):
             decks_menu.addAction(action)
 
     def _setup_shortcuts(self):
+        """Sets up keyboard shortcuts for the application."""
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, self.lint_panel._start_lint)
 
     def _open_project(self):
+        """Opens a project folder and updates file tree view."""
         path = QFileDialog.getExistingDirectory(self, "Open Project Folder")
         if path:
             self.current_project = Path(path)
@@ -549,6 +573,7 @@ class RefactoryMainWindow(QMainWindow):
             self.status_bar.showMessage(f"Project loaded: {path}")
 
     def _open_file(self, index):
+        """Opens a file from the file tree into the editor."""
         path = Path(self.file_model.filePath(index))
         if path.is_file() and path.suffix == ".py":
             self.editor.load_file(path)
@@ -556,11 +581,13 @@ class RefactoryMainWindow(QMainWindow):
             self.setWindowTitle(f"RedTongue Refactory - {path.name}")
 
     def _save_file(self):
+        """Saves the current file in the editor."""
         if self.current_file:
             if self.editor.save_file(self.current_file):
                 self.status_bar.showMessage(f"Saved: {self.current_file.name}")
 
     def _launch_deck(self, script_name):
+        """Launches a RedTongue deck application in a separate process."""
         script_path = Path(__file__).parent / script_name
         if script_path.exists():
             QProcess.startDetached(sys.executable, [str(script_path)])
@@ -573,5 +600,6 @@ class RefactoryMainWindow(QMainWindow):
             )
 
     def _push_lint_to_chat(self, prompt):
+        """Pushes lint results to AI chat panel as a prompt."""
         self.chat_panel.input.setText(prompt)
         self.chat_panel.input.setFocus()

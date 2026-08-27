@@ -164,6 +164,7 @@ class PipListWorker(QThread):
     error = pyqtSignal(str)
 
     def run(self):
+        """Executes pip list command and emits installed packages dictionary."""
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "list", "--format=json"],
@@ -193,9 +194,11 @@ class PipInstallWorker(QThread):
         self._stop = False
 
     def stop(self):
+        """Stops the installation worker."""
         self._stop = True
 
     def run(self):
+        """Executes pip install command and streams output."""
         cmd = [
             sys.executable,
             "-m",
@@ -236,6 +239,8 @@ class PipInstallWorker(QThread):
 # MAIN WINDOW
 # ==============================================================================
 class PyLibWindow(QMainWindow):
+    """Main window for Python package manager with curated package catalog."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RedTongue PyLib Manager")
@@ -249,6 +254,7 @@ class PyLibWindow(QMainWindow):
         self._refresh_packages()
 
     def _build_ui(self):
+        """Builds the main UI with toolbar, package tree, and log output."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -327,9 +333,11 @@ class PyLibWindow(QMainWindow):
         main_layout.addWidget(self.status_lbl)
 
     def _log(self, msg: str):
+        """Appends a message to the log output."""
         self.log_text.appendPlainText(msg)
 
     def _refresh_packages(self):
+        """Starts background scan of installed packages."""
         self.btn_refresh.setEnabled(False)
         self.status_lbl.setText("Scanning installed packages...")
         self._log("Starting package scan...")
@@ -340,6 +348,7 @@ class PyLibWindow(QMainWindow):
         self.list_worker.start()
 
     def _on_scan_finished(self, installed: dict[str, str]):
+        """Handles scan completion and populates package tree with results."""
         self.installed_packages = installed
         self.tree.clear()
 
@@ -382,11 +391,13 @@ class PyLibWindow(QMainWindow):
         )
 
     def _on_scan_error(self, err: str):
+        """Handles scan errors and updates UI status."""
         self.btn_refresh.setEnabled(True)
         self.status_lbl.setText("Scan failed.")
         self._log(f"Scan error: {err}")
 
     def _get_selected_packages(self) -> list[str]:
+        """Returns list of checked package names from tree widget."""
         selected = []
         for i in range(self.tree.topLevelItemCount()):
             cat_item = self.tree.topLevelItem(i)
@@ -397,6 +408,7 @@ class PyLibWindow(QMainWindow):
         return selected
 
     def _install_selected(self):
+        """Starts installation of selected packages after user confirmation."""
         packages = self._get_selected_packages()
         if not packages:
             QMessageBox.information(
@@ -428,11 +440,13 @@ class PyLibWindow(QMainWindow):
         self.install_worker.start()
 
     def _cancel_install(self):
+        """Cancels ongoing package installation."""
         if self.install_worker and self.install_worker.isRunning():
             self.install_worker.stop()
             self._log("Cancelling installation...")
 
     def _on_install_finished(self, success: bool, msg: str):
+        """Handles installation completion and optionally refreshes package list."""
         self.btn_install.setEnabled(True)
         self.btn_cancel.setEnabled(False)
         self.progress_bar.hide()

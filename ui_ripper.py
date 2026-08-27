@@ -77,6 +77,7 @@ class RipperDB:
         self._init_db()
 
     def _init_db(self):
+        """Initializes database schema with history table."""
         with self.conn:
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS history (
@@ -89,6 +90,7 @@ class RipperDB:
     def add_entry(
         self, url: str, title: str, mode: str, fmt: str, status: str, file_path: str
     ):
+        """Adds a download history entry to the database."""
         with self.conn:
             self.conn.execute(
                 "INSERT INTO history (url, title, mode, fmt, status, file_path, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -104,12 +106,14 @@ class RipperDB:
             )
 
     def get_history(self, limit: int = 50) -> list[tuple]:
+        """Retrieves recent download history entries."""
         cursor = self.conn.execute(
             "SELECT * FROM history ORDER BY id DESC LIMIT ?", (limit,)
         )
         return cursor.fetchall()
 
     def clear_history(self):
+        """Clears all download history from the database."""
         with self.conn:
             self.conn.execute("DELETE FROM history")
 
@@ -131,9 +135,11 @@ class YtDlpWorker(QThread):
         self._is_cancelled = False
 
     def cancel(self):
+        """Cancels the download operation."""
         self._is_cancelled = True
 
     def _progress_hook(self, d: dict[str, Any]):
+        """yt-dlp progress callback to emit download progress updates."""
         if self._is_cancelled:
             raise Exception("Cancelled by user")
 
@@ -154,6 +160,7 @@ class YtDlpWorker(QThread):
             self.progress.emit(99, "Converting...")
 
     def run(self):
+        """Executes yt-dlp download in background thread."""
         try:
             import yt_dlp
 
@@ -201,6 +208,7 @@ class DownloadItemWidget(QFrame):
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the download item widget UI."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
@@ -238,10 +246,12 @@ class DownloadItemWidget(QFrame):
         layout.addWidget(self.status_lbl)
 
     def update_progress(self, pct: int, status: str):
+        """Updates progress bar and status label."""
         self.bar.setValue(pct)
         self.status_lbl.setText(status)
 
     def set_finished(self, success: bool, title: str, path: str):
+        """Updates widget to show finished state with success or error styling."""
         if success:
             self.bar.setValue(100)
             self.status_lbl.setText(f"✓ {title}")
@@ -260,6 +270,8 @@ class DownloadItemWidget(QFrame):
 # MAIN WINDOW
 # ==============================================================================
 class RipperWindow(QMainWindow):
+    """Main window for media downloader with URL queue and concurrent downloads."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RedTongue Ripper")
@@ -274,6 +286,7 @@ class RipperWindow(QMainWindow):
         self._load_history()
 
     def _build_ui(self):
+        """Builds the main window UI with URL input, options, and download queue."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -358,10 +371,12 @@ class RipperWindow(QMainWindow):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handles drag enter events for URL drop support."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
+        """Handles URL drops by extracting and queueing the first HTTP URL."""
         urls = [
             url.toString()
             for url in event.mimeData().urls()
@@ -372,6 +387,7 @@ class RipperWindow(QMainWindow):
             self._add_to_queue()
 
     def _get_opts(self) -> dict[str, Any]:
+        """Builds yt-dlp options dictionary based on current UI settings."""
         mode = self.mode_combo.currentText()
         quality = self.quality_combo.currentText()
 
@@ -417,6 +433,7 @@ class RipperWindow(QMainWindow):
         return opts
 
     def _add_to_queue(self):
+        """Adds URL from input field to download queue and starts processing."""
         url = self.url_input.text().strip()
         if not url:
             return
@@ -443,6 +460,7 @@ class RipperWindow(QMainWindow):
         self._process_queue()
 
     def _process_queue(self):
+        """Processes download queue respecting max concurrent downloads limit."""
         active_count = len(self.active_workers)
         if active_count >= self.max_concurrent or not self.download_queue:
             return
@@ -468,6 +486,7 @@ class RipperWindow(QMainWindow):
     def _on_finished(
         self, success: bool, title: str, path: str, widget: DownloadItemWidget, url: str
     ):
+        """Handles download completion, updates database, and continues queue."""
         widget_id = id(widget)
         self.active_workers.pop(widget_id, None)
 
@@ -484,11 +503,13 @@ class RipperWindow(QMainWindow):
         self._process_queue()
 
     def _cancel_download(self, widget_id: int):
+        """Cancels active download by widget ID."""
         worker = self.active_workers.get(widget_id)
         if worker:
             worker.cancel()
 
     def _clear_finished(self):
+        """Removes all finished download items from the queue display."""
         # Iterate backwards to safely remove widgets
         for i in range(self.queue_layout.count() - 1, -1, -1):
             item = self.queue_layout.itemAt(i)
@@ -499,6 +520,7 @@ class RipperWindow(QMainWindow):
                     w.deleteLater()
 
     def _load_history(self):
+        """Initializes download history database."""
         # Optional: Load last 5 downloads into a log or just initialize DB
         pass
 

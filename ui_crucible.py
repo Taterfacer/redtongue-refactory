@@ -79,6 +79,7 @@ LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAACXBIWXMAAAsTAAALEwEA
 # UTILITY & STYLING
 # =============================================================================
 def get_resource_path(filename):
+    """Returns absolute path to resource file, handling PyInstaller bundled environments."""
     if "__compiled__" in globals() or hasattr(sys, "frozen"):
         local_path = Path(sys.executable).parent / filename
         if local_path.exists():
@@ -88,6 +89,7 @@ def get_resource_path(filename):
 
 
 def load_redtongue_logo(target_size=200):
+    """Loads and scales the Crucible logo from resources."""
     local_logo = get_resource_path("crucible_logo.png")
     if local_logo.exists():
         pixmap = QPixmap(str(local_logo))

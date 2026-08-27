@@ -309,6 +309,7 @@ class TimerPage(QWidget):
         self._set_mode("focus")
 
     def _build_ui(self):
+        """Builds the timer page UI layout with controls and progress bar."""
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -376,9 +377,11 @@ class TimerPage(QWidget):
         layout.addStretch()
 
     def _user_set_mode(self, mode: str):
+        """User-initiated mode change handler."""
         self._set_mode(mode)
 
     def _set_mode(self, mode: str):
+        """Sets timer mode (focus/short_break/long_break) and updates UI accordingly."""
         self.mode = mode
         self.is_running = False
         self.timer.stop()
@@ -408,6 +411,7 @@ class TimerPage(QWidget):
         self._update_display()
 
     def _toggle(self):
+        """Toggles timer between running and paused states."""
         if self.is_running:
             self.is_running = False
             self.timer.stop()
@@ -418,6 +422,7 @@ class TimerPage(QWidget):
             self.btn_start.setText("PAUSE")
 
     def _reset(self):
+        """Resets timer to initial state without changing mode."""
         self.is_running = False
         self.timer.stop()
         self.remaining_s = self.total_s
@@ -425,9 +430,11 @@ class TimerPage(QWidget):
         self._update_display()
 
     def _skip(self):
+        """Skips remaining time and completes current session immediately."""
         self._complete_session()
 
     def _tick(self):
+        """Timer tick handler, decrements remaining time each second."""
         if self.remaining_s > 0:
             self.remaining_s -= 1
             self._update_display()
@@ -435,6 +442,7 @@ class TimerPage(QWidget):
             self._complete_session()
 
     def _complete_session(self):
+        """Completes current session, plays sound, logs to data manager, and switches mode."""
         self.is_running = False
         self.timer.stop()
 
@@ -457,6 +465,7 @@ class TimerPage(QWidget):
             self._set_mode("focus")
 
     def _update_display(self):
+        """Updates timer display label and progress bar with current time."""
         mins, secs = divmod(self.remaining_s, 60)
         self.time_label.setText(f"{mins:02d}:{secs:02d}")
 
@@ -466,6 +475,8 @@ class TimerPage(QWidget):
 
 
 class TasksPage(QWidget):
+    """Task management page with add/complete/delete functionality."""
+
     def __init__(self, dm: DataManager):
         super().__init__()
         self.dm = dm
@@ -473,6 +484,7 @@ class TasksPage(QWidget):
         self._load_tasks()
 
     def _build_ui(self):
+        """Builds the tasks page UI with input field and task list."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -503,6 +515,7 @@ class TasksPage(QWidget):
         layout.addWidget(self.list, 1)
 
     def _add_task(self):
+        """Adds a new task from input field to the data manager."""
         text = self.input.text().strip()
         if not text:
             return
@@ -511,6 +524,7 @@ class TasksPage(QWidget):
         self._load_tasks()
 
     def _load_tasks(self):
+        """Loads and displays all tasks from data manager with visual formatting."""
         self.list.clear()
         tasks = self.dm.get_tasks("all")
         for t in tasks:
@@ -527,6 +541,7 @@ class TasksPage(QWidget):
             self.list.addItem(item)
 
     def _show_context_menu(self, pos):
+        """Displays context menu for task item with toggle/delete actions."""
         item = self.list.itemAt(pos)
         if not item:
             return
@@ -557,6 +572,8 @@ class TasksPage(QWidget):
 
 
 class NotesPage(QWidget):
+    """Quick notes page with auto-save text editor."""
+
     def __init__(self, dm: DataManager):
         super().__init__()
         self.dm = dm
@@ -564,6 +581,7 @@ class NotesPage(QWidget):
         self._load_note()
 
     def _build_ui(self):
+        """Builds the notes page UI with text editor and auto-save timer."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -589,20 +607,25 @@ class NotesPage(QWidget):
         self._save_timer.timeout.connect(self._save_note)
 
     def _load_note(self):
+        """Loads the default note content from data manager into editor."""
         notes = self.dm.get_notes()
         if notes:
             self.editor.setPlainText(notes[0].get("content", ""))
 
     def _on_text_changed(self):
+        """Triggers auto-save timer when text changes (debounced 1 second)."""
         self._save_timer.start(1000)
 
     def _save_note(self):
+        """Saves current note content to data manager."""
         notes = self.dm.get_notes()
         if notes:
             self.dm.update_note(notes[0]["id"], self.editor.toPlainText())
 
 
 class StatsPage(QWidget):
+    """Statistics page displaying focus time, sessions, and tasks completed."""
+
     def __init__(self, dm: DataManager):
         super().__init__()
         self.dm = dm
@@ -610,6 +633,7 @@ class StatsPage(QWidget):
         self.refresh()
 
     def _build_ui(self):
+        """Builds the statistics page UI layout."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -624,6 +648,7 @@ class StatsPage(QWidget):
         layout.addStretch()
 
     def refresh(self):
+        """Refreshes statistics display with current data from data manager."""
         # Clear existing
         while self.stats_layout.count():
             w = self.stats_layout.takeAt(0).widget()
@@ -674,6 +699,8 @@ class StatsPage(QWidget):
 # MAIN WINDOW
 # ==============================================================================
 class FocusStudioWindow(QMainWindow):
+    """Main application window for the Focus Studio with timer, tasks, notes, and stats."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -691,6 +718,7 @@ class FocusStudioWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self):
+        """Builds the main window UI with sidebar navigation and page stack."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
@@ -756,6 +784,7 @@ class FocusStudioWindow(QMainWindow):
         main_layout.addWidget(self.stack, 1)
 
     def _navigate(self, idx: int):
+        """Handles navigation button clicks to switch between pages."""
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self.nav_btns):
             btn.setChecked(i == idx)
