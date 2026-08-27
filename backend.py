@@ -137,13 +137,13 @@ def decrypt_value(value: str) -> str:
     """
     if not value or not value.startswith("ENC:"):
         return value
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet, InvalidToken
 
     try:
         return (
             Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
         )
-    except (ValueError, KeyError, TypeError) as e:
+    except (InvalidToken, ValueError, KeyError, TypeError) as e:
         logger.debug("Decryption failed: %s", e)
         return ""
 
