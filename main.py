@@ -125,7 +125,7 @@ def check_runtime_deps() -> None:
 # ==============================================================================
 # SPLASH SCREEN
 # ==============================================================================
-def create_splash(app: "QApplication") -> "QSplashScreen":
+def create_splash(app: QApplication) -> QSplashScreen:
     """Creates and returns the Blood & Void themed splash screen."""
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
@@ -194,7 +194,7 @@ def main() -> None:
         window = RefactoryMainWindow()
         window.show()
         splash.finish(window)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         splash.close()
         logger.critical(f"Failed to initialize UI: {e}", exc_info=True)
         QMessageBox.critical(None, "Fatal Error", f"Failed to initialize UI:\n\n{e}")

@@ -23,14 +23,9 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 import requests
-
-if TYPE_CHECKING:
-    from cryptography.fernet import Fernet as FernetType
-    from cryptography.hazmat.primitives import hashes as hashes_type
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2HMACType
 
 try:
     import numpy as np
@@ -219,7 +214,7 @@ class SpeechToText:
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
         except OSError as e:
-            logger.warning("STT hardware error: %s", e")
+            logger.warning("STT hardware error: %s", e)
             return None
 
 
@@ -370,7 +365,7 @@ class RAGIndex:
         if np is None:
             logger.warning("numpy unavailable — RAG disabled.")
         elif self._try_load():
-            logger.info("RAG loaded: %s", len(self._chunks) chunks.")
+            logger.info("RAG loaded: %s chunks.", len(self._chunks))
         else:
             threading.Thread(
                 target=self._safe_reindex,
@@ -394,7 +389,7 @@ class RAGIndex:
                 self._matrix = matrix
             return True
         except (json.JSONDecodeError, OSError, ValueError, KeyError) as e:
-            logger.warning("RAG load failed: %s", e")
+            logger.warning("RAG load failed: %s", e)
             return False
 
     def _save(self) -> None:
@@ -416,7 +411,7 @@ class RAGIndex:
             )
             np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
         except (OSError, ValueError) as e:
-            logger.warning("RAG save failed: %s", e")
+            logger.warning("RAG save failed: %s", e)
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
@@ -478,13 +473,13 @@ class RAGIndex:
             self._matrix = self._build_matrix(chunks)
             self._save()
             self._dirty = False
-            logger.info("RAG built: %s", len(chunks) chunks")
+            logger.info("RAG built: %s chunks", len(chunks))
 
     def _safe_reindex(self) -> None:
         try:
             self.reindex()
         except (OSError, ValueError, TypeError) as e:
-            logger.warning("RAG reindex failed: %s", e")
+            logger.warning("RAG reindex failed: %s", e)
 
     def query(self, text: str, top_k: int = 3) -> list[dict]:
         with self._lock:
@@ -550,7 +545,7 @@ class KokoroTTS:
         dest = self.models_dir / name
         if dest.exists() and dest.stat().st_size > 0:
             return True
-        logger.info("Downloading TTS: %s", name")
+        logger.info("Downloading TTS: %s", name)
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True)
             with requests.get(self.ASSETS[name], stream=True, timeout=120) as r:
@@ -667,7 +662,7 @@ class ToolLayer:
         self.rag = RAGIndex(self.workspace)
         self.tts = KokoroTTS()
         self.brain = DiagnosticBrain()
-        logger.info("ToolLayer ready — workspace: %s", self.workspace")
+        logger.info("ToolLayer ready — workspace: %s", self.workspace)
 
     def _safe_path(self, path: str) -> tuple[Path | None, dict | None]:
         try:
@@ -901,7 +896,7 @@ class FailoverStack:
         self._lock = threading.Lock()
 
     @classmethod
-    def load_config(cls, cfg: dict | None = None) -> "FailoverStack":
+    def load_config(cls, cfg: dict | None = None) -> FailoverStack:
         cfg = cfg if cfg is not None else load_config()
         entries: list[FailoverEntry] = []
         api_keys = cfg.get("api_keys", {})
@@ -1112,7 +1107,7 @@ class AgentSwarm:
                     max_retries=0,
                 )
             except (ValueError, TypeError) as e:
-                logger.warning("Client init '{entry.name}': %s", e")
+                logger.warning("Client init '%s': %s", entry.name, e)
 
     def rebuild_failover(self) -> None:
         self.failover = FailoverStack.load_config()
