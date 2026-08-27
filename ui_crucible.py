@@ -61,6 +61,7 @@ C_GRAY = "#888888"
 C_SUCCESS = "#2ecc71"
 C_ERROR = "#ff4444"
 
+# Base64 encoded RedTongue logo (PNG)
 LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAACXBIWXMAAAsTAAALEwEAmpwYAAAB+0lEQVR4nO2du04DQRRFz0zGBhMTgxMT8QUTw0Ij0BgTgxMT8QUTwyJiwkagMTqJhYnFRMbGBhOTsBGTsBGTsI2NjS2Nf4nO3Tk7OzvbXf+8F3l3c3bvr5VyuZwzhJ2EhISEhISEhISEhISEhISEhISEhISEhISEhITkQOYD4CHQDqgFtgB3A0vcAt4BzWqV/wN/ASVAy3QNzAG1QD/wE2gCdYDzYD3wGzAd1AOjYBdwBfSrdIUYE2gGPgNLIAbYD2wQxXwlRyAu+AvUAW/AYaAZaAG2A8eBT8B6YD6wHFWwAF+B+uA5cAw0R51eAh3Aj8BSPRYetExOoD1OoT0+gBeYAi3AJbAH/ATj2QAPcRl2JJ3D/IlrKZ1uCcy7LfQJXtFqXgU+cdEN+Ar8ABVgMfgDvI4KZ0Q64BqqwQpUw5aB01TCvCdWSrnCdpBdwBHwb+S3/AQ+AyqJwFk4D5Wq0W3Mf1XN1V4A9Q8DPwNVAcZiQ7Bv4HSoDfQRf2Gf8Ql9T4Gd4/8vgj5j/ASSEhISEhISEhISEhISEhISEhISEhISEhISEhISA3IM8uen/Egnku1AAAAAElFTkSuQmCC"
 
 
@@ -145,22 +146,27 @@ class SectionCard(QFrame):
 
 
 class SmartLogOutput(QTextEdit):
+    """Intelligent log display widget with syntax highlighting and auto-scroll."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFont(QFont("Consolas", 11))
         self.setReadOnly(True)
-        self.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {C_INPUT}; color: {C_WHITE};
-                border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px;
-            }}
-            QScrollBar:vertical {{ background: {C_BG}; width: 8px; margin: 0px; }}
-            QScrollBar::handle:vertical {{ background: #333333; border-radius: 4px; min-height: 20px; }}
-            QScrollBar::handle:vertical:hover {{ background: {C_RED}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-        """)
+        # Build stylesheet with proper line breaks for PEP 8 compliance
+        ss_edit = (
+            f"QTextEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; "
+            f"border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px; }}\n"
+            f"QScrollBar:vertical {{ background: {C_BG}; width: 8px; margin: 0px; }}\n"
+            f"QScrollBar::handle:vertical {{ background: #333333; "
+            f"border-radius: 4px; min-height: 20px; }}\n"
+            f"QScrollBar::handle:vertical:hover {{ background: {C_RED}; }}\n"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical "
+            "{{ height: 0px; }}"
+        )
+        self.setStyleSheet(ss_edit)
 
     def append_colored(self, text, color=None, bold=False):
+        """Append colored text to log, auto-scrolling if at bottom."""
         scrollbar = self.verticalScrollBar()
         at_bottom = scrollbar.value() >= scrollbar.maximum() - 20
 
@@ -178,37 +184,44 @@ class SmartLogOutput(QTextEdit):
 
 
 class DataDropList(QListWidget):
+    """List widget supporting drag-and-drop file operations."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.main_window = parent
-        self.setStyleSheet(f"""
-            QListWidget {{
-                background-color: {C_INPUT}; color: {C_WHITE};
-                border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px;
-            }}
-            QListWidget::item:selected {{ background-color: {C_RED}; color: {C_WHITE}; }}
-        """)
+        # Base stylesheet
+        self._base_style = (
+            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; "
+            f"border: 1px solid {C_BORDER}; border-radius: 4px; "
+            f"padding: 4px; font-size: 12px; }}\n"
+            f"QListWidget::item:selected {{ background-color: {C_RED}; "
+            f"color: {C_WHITE}; }}"
+        )
+        # Drag hover style
+        self._hover_style = (
+            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; "
+            f"border: 2px dashed {C_RED}; border-radius: 4px; "
+            f"padding: 4px; font-size: 12px; }}"
+        )
+        self.setStyleSheet(self._base_style)
 
     def dragEnterEvent(self, event):
+        """Handle drag enter event with visual feedback."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(
-                f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 2px dashed {C_RED}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
-            )
+            self.setStyleSheet(self._hover_style)
         else:
             event.ignore()
 
     def dragLeaveEvent(self, event):
-        self.setStyleSheet(
-            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
-        )
+        """Restore base style on drag leave."""
+        self.setStyleSheet(self._base_style)
 
     def dropEvent(self, event):
-        self.setStyleSheet(
-            f"QListWidget {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; }}"
-        )
+        """Handle file drop event."""
+        self.setStyleSheet(self._base_style)
         if not self.main_window:
             return
         for url in event.mimeData().urls():
@@ -261,7 +274,8 @@ class NuitkaBuildThread(QThread):
                 self.finished_build.emit(False, "Nuitka not installed", "")
                 return
             except TimeoutError as e:
-                self.output.emit(f"  ERROR: Nuitka version check timed out: {e}", "error")
+                err_msg = f"  ERROR: Nuitka version check timed out: {e}"
+                self.output.emit(err_msg, "error")
                 self.finished_build.emit(False, "Nuitka check timeout", "")
                 return
 
@@ -478,7 +492,7 @@ class NuitkaBuildThread(QThread):
                         if not str(member_path).startswith(str(upx_dir.resolve())):
                             msg = f"Unsafe path in archive: {member}"
                             raise ValueError(msg)
-                    zip_ref.extractall(upx_dir)
+                    zip_ref.extractall(upx_dir, filter="data")
             else:
                 with tarfile.open(zip_path, "r:xz") as tar_ref:
                     # Validate members before extraction to prevent path traversal
@@ -488,11 +502,11 @@ class NuitkaBuildThread(QThread):
                         # Skip dangerous members
                         if member.name.startswith("/") or ".." in member.name:
                             continue
+                        # Additional safety: check resolved path
                         member_path = (upx_dir / member.name).resolve()
-                        # Ensure extraction stays within target directory
-                        if str(member_path).startswith(str(upx_resolved)):
-                            safe_members.append(member)
-
+                        if not str(member_path).startswith(str(upx_resolved)):
+                            continue
+                        safe_members.append(member)
                     # Extract only validated members
                     tar_ref.extractall(upx_dir, members=safe_members, filter="data")
             os.remove(zip_path)
@@ -504,16 +518,20 @@ class NuitkaBuildThread(QThread):
                 self.output.emit("  UPX installed successfully.", "success")
                 return str(file)
         except urllib.error.URLError as e:
-            self.output.emit(f"  Failed to download UPX: Network error - {e}", "warning")
+            err_msg = f"  Failed to download UPX: Network error - {e}"
+            self.output.emit(err_msg, "warning")
             return None
         except zipfile.BadZipFile as e:
-            self.output.emit(f"  Failed to download UPX: Corrupted archive - {e}", "warning")
+            err_msg = f"  Failed to download UPX: Corrupted archive - {e}"
+            self.output.emit(err_msg, "warning")
             return None
         except tarfile.ReadError as e:
-            self.output.emit(f"  Failed to extract UPX: Invalid tar file - {e}", "warning")
+            err_msg = f"  Failed to extract UPX: Invalid tar file - {e}"
+            self.output.emit(err_msg, "warning")
             return None
         except OSError as e:
-            self.output.emit(f"  Failed to process UPX: File system error - {e}", "warning")
+            err_msg = f"  Failed to process UPX: File system error - {e}"
+            self.output.emit(err_msg, "warning")
             return None
 
     def prepare_icon(self):
@@ -550,13 +568,16 @@ class NuitkaBuildThread(QThread):
                 )
                 return str(ico_path)
             except OSError as e:
-                self.output.emit(f"  Icon conversion failed: File system error - {e}", "warning")
+                err_msg = f"  Icon conversion failed: File system error - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
             except ImportError as e:
-                self.output.emit(f"  Icon conversion failed: Pillow not installed - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Pillow not installed - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
             except ValueError as e:
-                self.output.emit(f"  Icon conversion failed: Invalid image format - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Invalid image format - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
         else:
             if source.suffix.lower() == ".png":
@@ -571,16 +592,20 @@ class NuitkaBuildThread(QThread):
                 img.save(png_path, "PNG")
                 return str(png_path)
             except FileNotFoundError as e:
-                self.output.emit(f"  Icon conversion failed: Image not found - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Image not found - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
             except OSError as e:
-                self.output.emit(f"  Icon conversion failed: Cannot read image - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Cannot read image - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
             except ImportError as e:
-                self.output.emit(f"  Icon conversion failed: Pillow not installed - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Pillow not installed - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
             except ValueError as e:
-                self.output.emit(f"  Icon conversion failed: Unsupported image format - {e}", "warning")
+                err_msg = f"  Icon conversion failed: Unsupported image format - {e}"
+                self.output.emit(err_msg, "warning")
                 return None
 
     def cancel(self):
@@ -978,9 +1003,13 @@ class CrucibleWindow(QMainWindow):
         except FileNotFoundError:
             QMessageBox.warning(self, "Scan Failed", "Script file not found.")
         except PermissionError:
-            QMessageBox.warning(self, "Scan Failed", "Permission denied reading script.")
+            QMessageBox.warning(
+                self, "Scan Failed", "Permission denied reading script."
+            )
         except UnicodeDecodeError:
-            QMessageBox.warning(self, "Scan Failed", "Script contains invalid characters.")
+            QMessageBox.warning(
+                self, "Scan Failed", "Script contains invalid characters."
+            )
 
     def copy_helper_code(self):
         snippet = """import sys
