@@ -6,7 +6,7 @@ Core engine layer for the RedTongue Refactory.
 Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the
 DiagnosticBrain (ONNX SmolLM) for forensic compression.
 """
-# NOTE: This file is imported as a module; shebang retained for direct execution support.
+# NOTE: This file is imported as a module; shebang retained for direct execution support
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, ClassVar, Final
+from typing import Any, AsyncGenerator, ClassVar, Final
 
 import requests
 
@@ -47,6 +47,7 @@ try:
     HAS_ONNX: bool = True
 except ImportError:
     HAS_ONNX = False
+    ort = None  # type: ignore[assignment]
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent
 CONFIG_FILE: Final[Path] = BASE_DIR / "config.json"
@@ -362,6 +363,9 @@ class DiagnosticBrain:
                 return
             model_path = self.models_dir / self.MODEL_NAME
             if not model_path.exists():
+                return
+            if not HAS_ONNX or ort is None:
+                logger.warning("DiagnosticBrain unavailable: onnxruntime not installed")
                 return
             try:
                 providers: list[str] = ["CPUExecutionProvider"]
@@ -913,6 +917,7 @@ class ToolLayer:
                 text=True,
                 cwd=self.workspace,
                 timeout=self.EXEC_TIMEOUT,
+                check=False,
             )
             out = proc.stdout or ""
             if proc.stderr:
@@ -1010,7 +1015,14 @@ class ToolLayer:
             )
             compressed = self.brain.compress_diagnostics(raw_lint_output)
             return {"status": "success", "output": compressed}
-        except Exception as e:
+        except RuntimeError as e:
+            logger.warning(f"Forensic lint runtime error: {e}")
+            return {"status": "error", "error": str(e)}
+        except ValueError as e:
+            logger.warning(f"Forensic lint value error: {e}")
+            return {"status": "error", "error": str(e)}
+        except OSError as e:
+            logger.warning(f"Forensic lint OS error: {e}")
             return {"status": "error", "error": str(e)}
 
     def analyze_crash_dump(self, stderr_text: str) -> dict:
@@ -1329,6 +1341,7 @@ class AgentSwarm:
         self.reset_clients()
 
     def reset_clients(self) -> None:
+        """Reset OpenAI client connections for all failover entries."""
         self._clients = {}
         try:
             from openai import AsyncOpenAI
@@ -1392,7 +1405,25 @@ class AgentSwarm:
         rag_context: str = "",
         disable_tools: bool = False,
         custom_system_prompt: str = "",
-    ):
+    ) -> AsyncGenerator[str, None]:
+        """Stream main agent responses with failover support.
+
+        Args:
+            message: User input message
+            history: Conversation history
+            autopilot: Enable automatic tool usage
+            effort: Effort level ("low", "medium", "high")
+            response_queue: Queue for streaming responses
+            rag_context: Retrieved context from RAG
+            disable_tools: Disable tool usage
+            custom_system_prompt: Override system prompt
+        """
+        # Import exception types at function scope for availability
+        try:
+            from openai import APIConnectionError, RateLimitError
+        except ImportError:
+            APIConnectionError = Exception  # type: ignore
+            RateLimitError = Exception  # type: ignore
         message = (message or "").strip()
         if not message:
             yield json.dumps({"type": "error", "content": "Empty message."})
@@ -1423,6 +1454,26 @@ class AgentSwarm:
                 if use_tools:
                     kwargs["tools"] = self.TOOL_SPECS
                 stream = await client.chat.completions.create(**kwargs)
+            except APIConnectionError as e:
+                err = f"Connection error: {e}"
+                self.failover.report_failure(entry, err)
+                yield json.dumps(
+                    {
+                        "type": "stream",
+                        "content": f"\n\n> ⚡ `{entry.name}` failed ({err[:140]}).\n\n",
+                    }
+                )
+                continue
+            except RateLimitError as e:
+                err = f"Rate limit: {e}"
+                self.failover.report_failure(entry, err)
+                yield json.dumps(
+                    {
+                        "type": "stream",
+                        "content": f"\n\n> ⚡ `{entry.name}` rate limited.\n\n",
+                    }
+                )
+                continue
             except Exception as e:
                 err = str(e)
                 if use_tools and "tool" in err.lower():
@@ -1465,6 +1516,19 @@ class AgentSwarm:
                                     acc["name"] = fn.name
                                 if fn.arguments:
                                     acc["arguments"] += fn.arguments
+            except APIConnectionError as e:
+                self.failover.report_failure(entry, f"Stream connection: {e}")
+                yield json.dumps(
+                    {
+                        "type": "stream",
+                        "content": "\n\n>  Stream connection lost. Retrying…\n\n",
+                    }
+                )
+                if content_parts:
+                    messages.append(
+                        {"role": "assistant", "content": "".join(content_parts)}
+                    )
+                continue
             except Exception as e:
                 self.failover.report_failure(entry, str(e))
                 err_msg = str(e)[:140]
