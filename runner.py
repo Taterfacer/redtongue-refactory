@@ -8,6 +8,7 @@ psutil for robust process tree termination.
 Optimized for low-RAM (8GB) environments to prevent OOM crashes.
 """
 
+import contextlib
 import logging
 import os
 import subprocess

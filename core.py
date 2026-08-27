@@ -357,7 +357,7 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
             with suppress(OSError):
                 os.close(fd)
         if tmp_path is not None:
-            with suppress(FileNotFoundError):
+            with suppress(OSError):
                 tmp_path.unlink()
 
 

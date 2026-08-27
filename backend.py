@@ -160,13 +160,22 @@ def load_config() -> dict[str, Any]:
         raw = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
 
     cfg: dict[str, Any] = {}
     if "api_keys" in raw:
-        cfg["api_keys"] = {
-            k: decrypt_value(v) if isinstance(v, str) and v.startswith("ENC:") else v
-            for k, v in raw["api_keys"].items()
-        }
+        api_keys = raw["api_keys"]
+        cfg["api_keys"] = (
+            {
+                k: decrypt_value(v)
+                if isinstance(v, str) and v.startswith("ENC:")
+                else v
+                for k, v in api_keys.items()
+            }
+            if isinstance(api_keys, dict)
+            else {}
+        )
     else:
         cfg["api_keys"] = {}
         for k, v in raw.items():
@@ -532,8 +541,8 @@ class RAGIndex:
                 except OSError:
                     continue
 
-    def _chunk_file(self, path: Path) -> list[dict]:
-        rel = path.relative_to(self.workspace).as_posix()
+    def _chunk_file(self, path: Path, file_id: str | None = None) -> list[dict]:
+        rel = file_id or path.relative_to(self.workspace).as_posix()
         try:
             if path.stat().st_size > self.MAX_FILE_SIZE:
                 return []
@@ -584,10 +593,11 @@ class RAGIndex:
         p = self.workspace / path
         if not p.exists() or not p.is_file():
             return
+        file_id = p.relative_to(self.workspace).as_posix()
         with self._lock:
-            new_chunks = self._chunk_file(p)
+            new_chunks = self._chunk_file(p, file_id)
             # Remove old chunks for this file
-            self._chunks = [c for c in self._chunks if c["path"] != path]
+            self._chunks = [c for c in self._chunks if c["path"] != file_id]
             self._chunks.extend(new_chunks)
             self._matrix = self._build_matrix(self._chunks)
             self._save()
@@ -788,6 +798,21 @@ class ToolLayer:
         "reboot ",
         ":(){:|:&};:",
     )
+    ALLOWED_SANDBOX_MODES = (True, False)
+    SHELL_INTERPRETERS = frozenset(
+        {
+            "bash",
+            "cmd",
+            "csh",
+            "dash",
+            "fish",
+            "ksh",
+            "powershell",
+            "pwsh",
+            "sh",
+            "zsh",
+        }
+    )
     EXEC_TIMEOUT = 60
     RUFF_TIMEOUT = 30
     MAX_OUTPUT = 100_000
@@ -910,6 +935,15 @@ class ToolLayer:
         assert p is not None
         if not p.exists() or not p.is_file():
             return {"status": "error", "error": f"Not found: {path}"}
+        if not any(
+            self.sandbox_mode is mode for mode in self.ALLOWED_SANDBOX_MODES
+        ):
+            return {"status": "error", "error": "Invalid sandbox mode."}
+        if self.sandbox_mode:
+            return {
+                "status": "error",
+                "error": "Python execution is disabled in sandbox mode.",
+            }
         try:
             proc = subprocess.run(
                 [sys.executable, str(p)],
@@ -939,13 +973,48 @@ class ToolLayer:
         if not command or not command.strip():
             return {"status": "error", "error": "Empty command."}
 
-        lowered = command.lower()
-        if any(pat in lowered for pat in self.DESTRUCTIVE_PATTERNS):
-            return {"status": "error", "error": "Blocked: destructive pattern."}
-
         try:
             # Parse command safely without shell interpretation
             cmd_list = shlex.split(command)
+            if not cmd_list:
+                return {"status": "error", "error": "Empty command."}
+            if not any(
+                self.sandbox_mode is mode for mode in self.ALLOWED_SANDBOX_MODES
+            ):
+                return {"status": "error", "error": "Invalid sandbox mode."}
+            if self.sandbox_mode:
+                return {
+                    "status": "error",
+                    "error": "Shell execution is disabled in sandbox mode.",
+                }
+
+            executable = cmd_list[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+            if executable.endswith((".exe", ".com")):
+                executable = executable.rsplit(".", 1)[0]
+            arguments = [arg.lower() for arg in cmd_list[1:]]
+            rm_options = "".join(
+                arg.lstrip("-") for arg in arguments if arg.startswith("-")
+            )
+            destructive = (
+                executable in self.SHELL_INTERPRETERS
+                or executable == "mkfs"
+                or executable.startswith("mkfs.")
+                or executable in {"shutdown", "reboot"}
+                or (
+                    executable == "format"
+                    and any(arg.rstrip("\\/") == "c:" for arg in arguments)
+                )
+                or (
+                    executable == "rm"
+                    and "r" in rm_options
+                    and "f" in rm_options
+                    and any(arg in {"/", "/*"} for arg in arguments)
+                )
+                or executable == self.DESTRUCTIVE_PATTERNS[-1]
+            )
+            if destructive:
+                return {"status": "error", "error": "Blocked: destructive pattern."}
+
             proc = subprocess.run(
                 cmd_list,
                 shell=False,

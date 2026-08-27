@@ -8,8 +8,11 @@ English-only, optimized for low-RAM environments.
 
 import ast
 import contextlib
+import hashlib
 import json
 import os
+import platform
+import shutil
 import signal
 import subprocess
 import sys
@@ -23,10 +26,17 @@ import zipfile
 from pathlib import Path
 
 from PyQt6.QtCore import QByteArray, QSettings, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QPalette, QPixmap, QTextCursor
+from PyQt6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QIcon,
+    QPalette,
+    QPixmap,
+    QTextCursor,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QAction,
     QApplication,
     QCheckBox,
     QFileDialog,
@@ -267,13 +277,17 @@ class NuitkaBuildThread(QThread):
                     text=True,
                     timeout=30,
                 )
+                if result.returncode != 0:
+                    self.output.emit("  ERROR: Nuitka is not available", "error")
+                    self.finished_build.emit(False, "Nuitka not installed", "")
+                    return
                 version = result.stdout.strip().split("\n")[0]
                 self.output.emit(f"  Nuitka version: {version}", "success")
             except FileNotFoundError as e:
                 self.output.emit(f"  ERROR: Nuitka executable not found: {e}", "error")
                 self.finished_build.emit(False, "Nuitka not installed", "")
                 return
-            except TimeoutError as e:
+            except subprocess.TimeoutExpired as e:
                 err_msg = f"  ERROR: Nuitka version check timed out: {e}"
                 self.output.emit(err_msg, "error")
                 self.finished_build.emit(False, "Nuitka check timeout", "")
@@ -449,22 +463,65 @@ class NuitkaBuildThread(QThread):
             self.finished_build.emit(False, str(e), "")
 
     def ensure_upx(self):
-        upx_dir = Path.home() / ".redtongue_crucible" / "upx"
-        upx_dir.mkdir(parents=True, exist_ok=True)
         exe_name = "upx.exe" if sys.platform == "win32" else "upx"
+        machine = platform.machine().lower()
 
-        for file in upx_dir.rglob(exe_name):
-            return str(file)
+        if sys.platform == "win32" and machine in {"amd64", "x86_64"}:
+            url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
+            platform_dir = "win64"
+            expected_sha256 = (
+                "22e9ef20e4c72aad85e32c71cbc9c086"
+                "436c179456382aa75c0c24868456a671"
+            )
+        elif sys.platform in {"win32", "darwin"}:
+            self.output.emit(
+                "  Automatic UPX installation is unavailable on this platform.",
+                "warning",
+            )
+            return None
+        elif sys.platform.startswith("linux") and machine in {"amd64", "x86_64"}:
+            url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz"
+            platform_dir = "linux-amd64"
+            expected_sha256 = (
+                "75cab4e57ab72fb4585ee45ff36388d2"
+                "80c7afd72aa03e8d4b9c3cbddb474193"
+            )
+        else:
+            self.output.emit(
+                "  Automatic UPX installation is unavailable on this platform "
+                "or CPU architecture.",
+                "warning",
+            )
+            return None
+
+        upx_dir = (
+            Path.home() / ".redtongue_crucible" / "upx" / "v4.2.4" / platform_dir
+        )
+        verification_marker = upx_dir / ".verified_sha256"
+        try:
+            cache_verified = (
+                verification_marker.read_text(encoding="ascii").strip()
+                == expected_sha256
+            )
+        except OSError:
+            cache_verified = False
+
+        if cache_verified:
+            for file in upx_dir.rglob(exe_name):
+                return str(file)
+
+        try:
+            if upx_dir.is_symlink():
+                upx_dir.unlink()
+            else:
+                shutil.rmtree(upx_dir, ignore_errors=True)
+            upx_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            self.output.emit(f"  Failed to reset UPX cache: {e}", "warning")
+            return None
 
         self.output.emit("  UPX requested. Downloading automatically...", "info")
         self.progress.emit(12, "Downloading UPX...")
-
-        if sys.platform == "win32":
-            url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
-        elif sys.platform == "darwin":
-            url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-darwin-amd64.tar.xz"
-        else:
-            url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz"
 
         zip_path = upx_dir / "upx_download.zip"
         try:
@@ -481,18 +538,32 @@ class NuitkaBuildThread(QThread):
                 urllib.request.urlopen(req, timeout=30) as response,
                 open(zip_path, "wb") as out_file,
             ):  # nosec B310 - URL scheme validated as HTTPS only
-                out_file.write(response.read())
+                archive_hash = hashlib.sha256()
+                while chunk := response.read(1024 * 1024):
+                    out_file.write(chunk)
+                    archive_hash.update(chunk)
+
+            if archive_hash.hexdigest() != expected_sha256:
+                with contextlib.suppress(OSError):
+                    zip_path.unlink()
+                msg = "Downloaded UPX archive failed SHA-256 verification"
+                raise ValueError(msg)
 
             self.output.emit("  Extracting UPX...", "info")
             if url.endswith(".zip"):
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     # Validate paths before extraction
-                    for member in zip_ref.namelist():
-                        member_path = (upx_dir / member).resolve()
-                        if not str(member_path).startswith(str(upx_dir.resolve())):
-                            msg = f"Unsafe path in archive: {member}"
+                    safe_members = []
+                    upx_resolved = upx_dir.resolve()
+                    for member in zip_ref.infolist():
+                        member_path = (upx_dir / member.filename).resolve()
+                        try:
+                            member_path.relative_to(upx_resolved)
+                        except ValueError:
+                            msg = f"Unsafe path in archive: {member.filename}"
                             raise ValueError(msg)
-                    zip_ref.extractall(upx_dir, filter="data")
+                        safe_members.append(member)
+                    zip_ref.extractall(upx_dir, members=safe_members)
             else:
                 with tarfile.open(zip_path, "r:xz") as tar_ref:
                     # Validate members before extraction to prevent path traversal
@@ -515,6 +586,7 @@ class NuitkaBuildThread(QThread):
                 if sys.platform != "win32":
                     # Set more restrictive permissions (owner read/write/execute only)
                     os.chmod(file, 0o700)
+                verification_marker.write_text(expected_sha256, encoding="ascii")
                 self.output.emit("  UPX installed successfully.", "success")
                 return str(file)
         except urllib.error.URLError as e:
@@ -531,6 +603,10 @@ class NuitkaBuildThread(QThread):
             return None
         except OSError as e:
             err_msg = f"  Failed to process UPX: File system error - {e}"
+            self.output.emit(err_msg, "warning")
+            return None
+        except ValueError as e:
+            err_msg = f"  Failed to process UPX: {e}"
             self.output.emit(err_msg, "warning")
             return None
 
@@ -586,9 +662,8 @@ class NuitkaBuildThread(QThread):
             try:
                 from PIL import Image
 
-                img = Image.open(source).convert(
-                    "RGBA" if img.mode == "RGBA" else "RGB"
-                )
+                img = Image.open(source)
+                img = img.convert("RGBA" if img.mode == "RGBA" else "RGB")
                 img.save(png_path, "PNG")
                 return str(png_path)
             except FileNotFoundError as e:
@@ -1088,15 +1163,20 @@ def get_resource_path(filename):
 
     def check_and_install_nuitka(self):
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [self.env_edit.text(), "-m", "nuitka", "--version"],
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=15,
             )
-            return True
-        except (FileNotFoundError, TimeoutError, subprocess.SubprocessError):
+            if result.returncode == 0:
+                return True
+        except (
+            FileNotFoundError,
+            subprocess.TimeoutExpired,
+            subprocess.SubprocessError,
+        ):
             pass
 
         reply = QMessageBox.question(
