@@ -354,7 +354,7 @@ class NuitkaBuildThread(QThread):
                     try:
                         pct = int(line.split("%")[0].strip().split()[-1])
                         self.progress.emit(max(20, min(pct, 95)), "Compiling...")
-                    except:
+                    except (ValueError, IndexError):
                         pass
 
             if self._kill:

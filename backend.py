@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""
-backend.py
+"""backend.py
+
 Core engine layer for the RedTongue Refactory.
 Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the
 DiagnosticBrain (ONNX SmolLM) for forensic compression.
@@ -23,14 +23,19 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import requests
 
+if TYPE_CHECKING:
+    from cryptography.fernet import Fernet as FernetType
+    from cryptography.hazmat.primitives import hashes as hashes_type
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2HMACType
+
 try:
-    import numpy as _np
+    import numpy as np
 except ImportError:
-    _np = None
+    np = None
 
 try:
     import speech_recognition as sr
@@ -116,7 +121,7 @@ def decrypt_value(value: str) -> str:
     try:
         return Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
     except (ValueError, KeyError, TypeError) as e:
-        logger.debug(f"Decryption failed: {e}")
+        logger.debug("Decryption failed: %s", e)
         return ""
 
 
@@ -171,10 +176,10 @@ def save_config(cfg: dict) -> None:
     try:
         CONFIG_FILE.write_text(json.dumps(raw, indent=2), encoding="utf-8")
     except (OSError, PermissionError, TypeError) as e:
-        logger.warning(f"Config save failed: {e}")
+        logger.warning("Config save failed: %s", e)
 
 
-def is_sensitive_path(path) -> bool:
+def is_sensitive_path(path: str) -> bool:
     name = Path(path).name.lower()
     if name in (".env", ".gitconfig", "id_rsa") or name.startswith(".env"):
         return True
@@ -214,7 +219,7 @@ class SpeechToText:
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
         except OSError as e:
-            logger.warning(f"STT hardware error: {e}")
+            logger.warning("STT hardware error: %s", e")
             return None
 
 
@@ -274,11 +279,11 @@ class DiagnosticBrain:
             self._load_model()
             return True
         except requests.RequestException as e:
-            logger.error(f"SmolLM download failed: {e}")
+            logger.error("SmolLM download failed: %s", e)
             self._download_status = "failed"
             return False
         except OSError as e:
-            logger.error(f"SmolLM file write failed: {e}")
+            logger.error("SmolLM file write failed: %s", e)
             self._download_status = "failed"
             return False
 
@@ -294,9 +299,9 @@ class DiagnosticBrain:
                 if sys.platform == "win32" and "DmlExecutionProvider" in ort.get_available_providers():
                     providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                 self.session = ort.InferenceSession(str(model_path), providers=providers)
-                logger.info(f"DiagnosticBrain loaded via {providers[0]}")
+                logger.info("DiagnosticBrain loaded via %s", providers[0])
             except ort.OrtException as e:
-                logger.warning(f"DiagnosticBrain failed to load ONNX session: {e}")
+                logger.warning("DiagnosticBrain failed to load ONNX session: %s", e)
 
     def compress_diagnostics(self, raw_data: str) -> str:
         if not self.session:
@@ -362,10 +367,10 @@ class RAGIndex:
         self._matrix = None
         self._dirty = False
 
-        if _np is None:
+        if np is None:
             logger.warning("numpy unavailable — RAG disabled.")
         elif self._try_load():
-            logger.info(f"RAG loaded: {len(self._chunks)} chunks.")
+            logger.info("RAG loaded: %s", len(self._chunks) chunks.")
         else:
             threading.Thread(
                 target=self._safe_reindex,
@@ -380,8 +385,8 @@ class RAGIndex:
             if not meta.exists() or not vec.exists():
                 return False
             chunks = json.loads(meta.read_text(encoding="utf-8"))
-            data = _np.load(str(vec))
-            matrix = data["vectors"].astype(_np.float32)
+            data = np.load(str(vec))
+            matrix = data["vectors"].astype(np.float32)
             if len(chunks) != matrix.shape[0]:
                 return False
             with self._lock:
@@ -389,11 +394,11 @@ class RAGIndex:
                 self._matrix = matrix
             return True
         except (json.JSONDecodeError, OSError, ValueError, KeyError) as e:
-            logger.warning(f"RAG load failed: {e}")
+            logger.warning("RAG load failed: %s", e")
             return False
 
     def _save(self) -> None:
-        if _np is None:
+        if np is None:
             return
         try:
             self.index_dir.mkdir(parents=True, exist_ok=True)
@@ -404,25 +409,25 @@ class RAGIndex:
             matrix = (
                 self._matrix
                 if self._matrix is not None
-                else _np.zeros(
+                else np.zeros(
                     (0, self.DIM),
-                    dtype=_np.float32,
+                    dtype=np.float32,
                 )
             )
-            _np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
+            np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
         except (OSError, ValueError) as e:
-            logger.warning(f"RAG save failed: {e}")
+            logger.warning("RAG save failed: %s", e")
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
         return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
 
     def _embed(self, text: str):
-        vec = _np.zeros(self.DIM, dtype=_np.float32)
+        vec = np.zeros(self.DIM, dtype=np.float32)
         for tok in self._tokens(text):
             idx = int(hashlib.md5(tok.encode("utf-8")).hexdigest()[:8], 16) % self.DIM
             vec[idx] += 1.0
-        norm = float(_np.linalg.norm(vec))
+        norm = float(np.linalg.norm(vec))
         if norm > 0:
             vec /= norm
         return vec
@@ -456,14 +461,14 @@ class RAGIndex:
         return chunks
 
     def _build_matrix(self, chunks: list[dict]):
-        if _np is None:
+        if np is None:
             return None
         if not chunks:
-            return _np.zeros((0, self.DIM), dtype=_np.float32)
-        return _np.stack([self._embed(c["text"]) for c in chunks]).astype(_np.float32)
+            return np.zeros((0, self.DIM), dtype=np.float32)
+        return np.stack([self._embed(c["text"]) for c in chunks]).astype(np.float32)
 
     def reindex(self) -> None:
-        if _np is None:
+        if np is None:
             return
         with self._lock:
             chunks: list[dict] = []
@@ -473,27 +478,27 @@ class RAGIndex:
             self._matrix = self._build_matrix(chunks)
             self._save()
             self._dirty = False
-            logger.info(f"RAG built: {len(chunks)} chunks")
+            logger.info("RAG built: %s", len(chunks) chunks")
 
     def _safe_reindex(self) -> None:
         try:
             self.reindex()
         except (OSError, ValueError, TypeError) as e:
-            logger.warning(f"RAG reindex failed: {e}")
+            logger.warning("RAG reindex failed: %s", e")
 
     def query(self, text: str, top_k: int = 3) -> list[dict]:
         with self._lock:
-            if _np is None or self._matrix is None or not self._chunks:
+            if np is None or self._matrix is None or not self._chunks:
                 return []
             try:
                 q = self._embed(text or "")
                 scores = self._matrix @ q
                 k = max(1, int(top_k))
                 if k >= len(scores):
-                    order = _np.argsort(scores)[::-1]
+                    order = np.argsort(scores)[::-1]
                 else:
-                    part_idx = _np.argpartition(scores, -k)[-k:]
-                    order = part_idx[_np.argsort(scores[part_idx])[::-1]]
+                    part_idx = np.argpartition(scores, -k)[-k:]
+                    order = part_idx[np.argsort(scores[part_idx])[::-1]]
                 hits = []
                 for i in order:
                     s = float(scores[i])
@@ -545,7 +550,7 @@ class KokoroTTS:
         dest = self.models_dir / name
         if dest.exists() and dest.stat().st_size > 0:
             return True
-        logger.info(f"Downloading TTS: {name}")
+        logger.info("Downloading TTS: %s", name")
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True)
             with requests.get(self.ASSETS[name], stream=True, timeout=120) as r:
@@ -558,7 +563,7 @@ class KokoroTTS:
                 tmp.replace(dest)
             return True
         except (requests.RequestException, OSError, ConnectionError) as e:
-            logger.error(f"TTS download '{name}' failed: {e}")
+            logger.error("TTS download '{name}' failed: %s", e)
             return False
 
     def _ensure_engine(self) -> Any:
@@ -662,7 +667,7 @@ class ToolLayer:
         self.rag = RAGIndex(self.workspace)
         self.tts = KokoroTTS()
         self.brain = DiagnosticBrain()
-        logger.info(f"ToolLayer ready — workspace: {self.workspace}")
+        logger.info("ToolLayer ready — workspace: %s", self.workspace")
 
     def _safe_path(self, path: str) -> tuple[Path | None, dict | None]:
         try:
@@ -697,7 +702,7 @@ class ToolLayer:
             try:
                 self.rag.index_file(path)
             except (OSError, ValueError, TypeError) as e:
-                logger.debug(f"RAG index after write failed: {e}")
+                logger.debug("RAG index after write failed: %s", e)
             return {"status": "success", "path": path, "bytes": len(data.encode("utf-8"))}
         except OSError as e:
             return {"status": "error", "error": str(e)}
@@ -952,7 +957,7 @@ class FailoverStack:
             entry.last_error = str(error)
             if entry.error_count >= self.MAX_ERRORS:
                 entry.dead = True
-                logger.warning(f"Failover '{entry.name}' DEAD after {entry.error_count} errors")
+                logger.warning("Failover '%s' DEAD after %d errors", entry.name, entry.error_count)
             else:
                 entry.cooldown_until = time.time() + self.COOLDOWN_SECONDS
 
@@ -1094,7 +1099,7 @@ class AgentSwarm:
         try:
             from openai import AsyncOpenAI
         except ImportError as e:
-            logger.error(f"openai SDK unavailable: {e}")
+            logger.error("openai SDK unavailable: %s", e)
             return
         for entry in self.failover.entries:
             if not entry.api_key:
@@ -1107,7 +1112,7 @@ class AgentSwarm:
                     max_retries=0,
                 )
             except (ValueError, TypeError) as e:
-                logger.warning(f"Client init '{entry.name}': {e}")
+                logger.warning("Client init '{entry.name}': %s", e")
 
     def rebuild_failover(self) -> None:
         self.failover = FailoverStack.load_config()
