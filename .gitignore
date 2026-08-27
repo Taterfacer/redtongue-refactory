@@ -1,4 +1,65 @@
-```
-__pycache__/
+```python
+# Compiled and build artifacts
 *.pyc
+__pycache__/
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+build/
+dist/
+*.class
+
+# Dependencies
+.venv/
+venv/
+.env
+.env.local
+*.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage reports
+.coverage
+htmlcov/
+coverage/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
+*.tar.gz
+*.zip
+*.gz
+*.tar
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
 ```

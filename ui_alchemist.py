@@ -7,6 +7,8 @@ Features auto-provisioning of external tools (FFmpeg, Tesseract),
 multi-threaded batch processing, and a Potato PC optimized UI.
 """
 
+from typing import ClassVar
+
 import shutil
 import subprocess
 import sys
@@ -90,7 +92,7 @@ class ConvertSettings:
 
 
 class ConverterRegistry:
-    _converters: dict[tuple[str, str], Callable] = {}
+    _converters: ClassVar[dict[tuple[str, str], Callable]] = {}
 
     @classmethod
     def register(cls, src_ext: str, dst_ext: str):

@@ -367,11 +367,8 @@ class TimerPage(QWidget):
         self.btn_long = QPushButton("Long Break")
         for b in [self.btn_focus, self.btn_short, self.btn_long]:
             b.setFixedHeight(36)
-            b.clicked.connect(
-                lambda checked, m=b.text().lower().replace(" ", "_"): (
-                    self._user_set_mode(m)
-                )
-            )
+            mode_name = b.text().lower().replace(" ", "_")
+            b.clicked.connect(lambda checked, m=mode_name: self._user_set_mode(m))
             mode_layout.addWidget(b)
 
         layout.addSpacing(20)

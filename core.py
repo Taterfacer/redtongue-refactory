@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 # ==============================================================================
 # CONSTANTS & EXIT CODES

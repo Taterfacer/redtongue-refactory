@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 import requests
 
@@ -1080,7 +1080,7 @@ class FailoverStack:
 
 
 class AgentSwarm:
-    TOOL_SPECS = [
+    TOOL_SPECS: ClassVar[list[dict]] = [
         {
             "type": "function",
             "function": {
