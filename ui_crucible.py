@@ -7,13 +7,16 @@ English-only, optimized for low-RAM environments.
 """
 
 import ast
+import contextlib
 import json
 import os
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -246,15 +249,20 @@ class NuitkaBuildThread(QThread):
             try:
                 result = subprocess.run(
                     [self.python_exe, "-m", "nuitka", "--version"],
+                    check=False,
                     capture_output=True,
                     text=True,
                     timeout=30,
                 )
                 version = result.stdout.strip().split("\n")[0]
                 self.output.emit(f"  Nuitka version: {version}", "success")
-            except Exception as e:
-                self.output.emit(f"  ERROR: Nuitka not found: {e}", "error")
+            except FileNotFoundError as e:
+                self.output.emit(f"  ERROR: Nuitka executable not found: {e}", "error")
                 self.finished_build.emit(False, "Nuitka not installed", "")
+                return
+            except TimeoutError as e:
+                self.output.emit(f"  ERROR: Nuitka version check timed out: {e}", "error")
+                self.finished_build.emit(False, "Nuitka check timeout", "")
                 return
 
             self.progress.emit(10, "Preparing icon...")
@@ -416,8 +424,14 @@ class NuitkaBuildThread(QThread):
                     False, f"Nuitka exited with code {self.process.returncode}", ""
                 )
 
-        except Exception as e:
-            self.output.emit(f"  CRITICAL ERROR: {e!s}", "error")
+        except subprocess.CalledProcessError as e:
+            self.output.emit(f"  CRITICAL ERROR: Build process failed: {e!s}", "error")
+            self.finished_build.emit(False, str(e), "")
+        except FileNotFoundError as e:
+            self.output.emit(f"  CRITICAL ERROR: Executable not found: {e!s}", "error")
+            self.finished_build.emit(False, str(e), "")
+        except TimeoutError as e:
+            self.output.emit(f"  CRITICAL ERROR: Build timed out: {e!s}", "error")
             self.finished_build.emit(False, str(e), "")
 
     def ensure_upx(self):
@@ -466,8 +480,6 @@ class NuitkaBuildThread(QThread):
                             raise ValueError(msg)
                     zip_ref.extractall(upx_dir)
             else:
-                import tarfile
-
                 with tarfile.open(zip_path, "r:xz") as tar_ref:
                     # Validate members before extraction to prevent path traversal
                     safe_members = []
@@ -491,8 +503,17 @@ class NuitkaBuildThread(QThread):
                     os.chmod(file, 0o700)
                 self.output.emit("  UPX installed successfully.", "success")
                 return str(file)
-        except Exception as e:
-            self.output.emit(f"  Failed to download UPX: {e}", "warning")
+        except urllib.error.URLError as e:
+            self.output.emit(f"  Failed to download UPX: Network error - {e}", "warning")
+            return None
+        except zipfile.BadZipFile as e:
+            self.output.emit(f"  Failed to download UPX: Corrupted archive - {e}", "warning")
+            return None
+        except tarfile.ReadError as e:
+            self.output.emit(f"  Failed to extract UPX: Invalid tar file - {e}", "warning")
+            return None
+        except OSError as e:
+            self.output.emit(f"  Failed to process UPX: File system error - {e}", "warning")
             return None
 
     def prepare_icon(self):
@@ -528,8 +549,14 @@ class NuitkaBuildThread(QThread):
                     ],
                 )
                 return str(ico_path)
-            except Exception as e:
-                self.output.emit(f"  Icon conversion failed: {e}", "warning")
+            except OSError as e:
+                self.output.emit(f"  Icon conversion failed: File system error - {e}", "warning")
+                return None
+            except ImportError as e:
+                self.output.emit(f"  Icon conversion failed: Pillow not installed - {e}", "warning")
+                return None
+            except ValueError as e:
+                self.output.emit(f"  Icon conversion failed: Invalid image format - {e}", "warning")
                 return None
         else:
             if source.suffix.lower() == ".png":
@@ -543,8 +570,17 @@ class NuitkaBuildThread(QThread):
                 )
                 img.save(png_path, "PNG")
                 return str(png_path)
-            except Exception as e:
-                self.output.emit(f"  Icon conversion failed: {e}", "warning")
+            except FileNotFoundError as e:
+                self.output.emit(f"  Icon conversion failed: Image not found - {e}", "warning")
+                return None
+            except OSError as e:
+                self.output.emit(f"  Icon conversion failed: Cannot read image - {e}", "warning")
+                return None
+            except ImportError as e:
+                self.output.emit(f"  Icon conversion failed: Pillow not installed - {e}", "warning")
+                return None
+            except ValueError as e:
+                self.output.emit(f"  Icon conversion failed: Unsupported image format - {e}", "warning")
                 return None
 
     def cancel(self):
@@ -554,6 +590,7 @@ class NuitkaBuildThread(QThread):
                 if sys.platform == "win32":
                     subprocess.run(
                         ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        check=False,
                         capture_output=True,
                     )
                 else:
@@ -561,7 +598,11 @@ class NuitkaBuildThread(QThread):
                 time.sleep(0.5)
                 if self.process.poll() is None:
                     self.process.kill()
-            except Exception:
+            except (OSError, ProcessLookupError):
+                # Process already terminated or doesn't exist
+                pass
+            except subprocess.SubprocessError:
+                # Taskkill failed on Windows
                 pass
 
 
@@ -934,8 +975,12 @@ class CrucibleWindow(QMainWindow):
                 self.log("  Auto-Scan finished. No new data files found.", "info")
         except SyntaxError:
             QMessageBox.warning(self, "Scan Failed", "Syntax Error in script.")
-        except Exception as e:
-            QMessageBox.warning(self, "Scan Failed", str(e))
+        except FileNotFoundError:
+            QMessageBox.warning(self, "Scan Failed", "Script file not found.")
+        except PermissionError:
+            QMessageBox.warning(self, "Scan Failed", "Permission denied reading script.")
+        except UnicodeDecodeError:
+            QMessageBox.warning(self, "Scan Failed", "Script contains invalid characters.")
 
     def copy_helper_code(self):
         snippet = """import sys
@@ -1016,12 +1061,13 @@ def get_resource_path(filename):
         try:
             subprocess.run(
                 [self.env_edit.text(), "-m", "nuitka", "--version"],
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=15,
             )
             return True
-        except Exception:
+        except (FileNotFoundError, TimeoutError, subprocess.SubprocessError):
             pass
 
         reply = QMessageBox.question(
@@ -1036,7 +1082,7 @@ def get_resource_path(filename):
                     [self.env_edit.text(), "-m", "pip", "install", "nuitka"], check=True
                 )
                 return True
-            except Exception:
+            except (subprocess.CalledProcessError, FileNotFoundError, TimeoutError):
                 return False
         return False
 
