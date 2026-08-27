@@ -25,11 +25,12 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import IntEnum
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Self
 
 # ==============================================================================
 # CONSTANTS & EXIT CODES
@@ -161,7 +162,7 @@ class Config:
 
     project_root: Path
     state_dir: Path
-    exclude: tuple = tuple()
+    exclude: tuple = ()
     ruff_path: str | None = None
     target_python: str | None = None
     limit_mem_mb: int = 768
@@ -275,7 +276,8 @@ def setup_logging(logs_dir: Path, verbose: bool = False) -> logging.Logger:
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"
+                "%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: "
+                "%(message)s"
             )
         )
 
@@ -352,10 +354,10 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
         raise AtomicWriteError(f"atomic_write({destination}): {e}") from e
     finally:
         if fd != -1:
-            with contextlib.suppress(OSError):
+            with suppress(OSError):
                 os.close(fd)
         if tmp_path is not None:
-            with contextlib.suppress(FileNotFoundError):
+            with suppress(FileNotFoundError):
                 tmp_path.unlink()
 
 
@@ -381,7 +383,7 @@ class FileLock:
         deadline = time.monotonic() + timeout
         self.path.parent.mkdir(parents=True, exist_ok=True)
         while True:
-            fh = open(self.path, "a+b")
+            fh = open(self.path, "a+b")  # noqa: SIM115
             try:
                 if _fcntl is not None:
                     _fcntl.flock(fh.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
@@ -412,7 +414,7 @@ class FileLock:
                 self._fh.close()
                 self._fh = None
 
-    def __enter__(self) -> "FileLock":
+    def __enter__(self) -> Self:
         if self._fh is None:
             self.acquire()
         return self
@@ -427,7 +429,7 @@ class BootLock:
     def __init__(self, layout: Layout):
         self._lock = FileLock(layout.boot_lock)
 
-    def __enter__(self) -> "BootLock":
+    def __enter__(self) -> Self:
         self._lock.acquire(timeout=0.0)
         return self
 
@@ -717,7 +719,7 @@ class Governor:
         old = self._level
         self._level = new
         if self.recorder:
-            with contextlib.suppress(Exception):
+            with suppress(Exception):
                 self.recorder(old, new, reason)
 
     def _enter_pause(self, reason: str) -> None:
@@ -805,7 +807,7 @@ class Store:
                 self._conn.close()
                 self._conn = None
 
-    def __enter__(self) -> "Store":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -880,6 +882,7 @@ class Store:
         """Appends an entry to the audit journal."""
         with self._lock:
             self._conn.execute(
-                "INSERT INTO journal (actor, action, detail, created_utc) VALUES (?, ?, ?, ?)",
+                "INSERT INTO journal (actor, action, detail, created_utc)"
+                " VALUES (?, ?, ?, ?)",
                 (actor, action, json.dumps(detail or {}), iso_utc()),
             )
