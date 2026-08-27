@@ -105,7 +105,9 @@ def encrypt_value(value: str) -> str:
         return value
     from cryptography.fernet import Fernet
 
-    return "ENC:" + Fernet(get_machine_key()).encrypt(value.encode("utf-8")).decode("ascii")
+    return "ENC:" + Fernet(get_machine_key()).encrypt(value.encode("utf-8")).decode(
+        "ascii"
+    )
 
 
 def decrypt_value(value: str) -> str:
@@ -114,7 +116,9 @@ def decrypt_value(value: str) -> str:
     from cryptography.fernet import Fernet
 
     try:
-        return Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
+        return (
+            Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
+        )
     except (ValueError, KeyError, TypeError) as e:
         logger.debug("Decryption failed: %s", e)
         return ""
@@ -139,7 +143,11 @@ def load_config() -> dict[str, Any]:
         for k, v in raw.items():
             if "KEY" in k.upper() or "TOKEN" in k.upper():
                 provider = k.lower().replace("_api_key", "").replace("_key", "")
-                cfg["api_keys"][provider] = decrypt_value(v) if isinstance(v, str) and v.startswith("ENC:") else v
+                cfg["api_keys"][provider] = (
+                    decrypt_value(v)
+                    if isinstance(v, str) and v.startswith("ENC:")
+                    else v
+                )
             else:
                 cfg[k] = v
 
@@ -160,7 +168,9 @@ def save_config(cfg: dict) -> None:
     for k, v in cfg.items():
         if k == "api_keys":
             raw["api_keys"] = {
-                provider: encrypt_value(val) if val and not str(val).startswith("ENC:") else val
+                provider: encrypt_value(val)
+                if val and not str(val).startswith("ENC:")
+                else val
                 for provider, val in (v or {}).items()
             }
         elif "KEY" in k.upper() or "TOKEN" in k.upper():
@@ -203,13 +213,17 @@ class SpeechToText:
         self.recognizer = sr.Recognizer() if HAS_STT else None
         self.microphone = sr.Microphone() if HAS_STT else None
 
-    def listen_and_transcribe(self, timeout: int = 5, phrase_time_limit: int = 10) -> str | None:
+    def listen_and_transcribe(
+        self, timeout: int = 5, phrase_time_limit: int = 10
+    ) -> str | None:
         if not HAS_STT or not self.recognizer:
             return None
         try:
             with self.microphone as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+                audio = self.recognizer.listen(
+                    source, timeout=timeout, phrase_time_limit=phrase_time_limit
+                )
             return self.recognizer.recognize_google(audio)
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
@@ -242,9 +256,15 @@ class DiagnosticBrain:
 
     @property
     def status(self) -> dict:
-        return {"status": self._download_status, "progress": self._download_progress, "loaded": self.is_ready}
+        return {
+            "status": self._download_status,
+            "progress": self._download_progress,
+            "loaded": self.is_ready,
+        }
 
-    def ensure_model(self, progress_callback: Callable[[float], None] | None = None) -> bool:
+    def ensure_model(
+        self, progress_callback: Callable[[float], None] | None = None
+    ) -> bool:
         """Checks for model, downloads if missing. Returns True if ready."""
         model_path = self.models_dir / self.MODEL_NAME
         if model_path.exists() and model_path.stat().st_size > 10_000_000:
@@ -291,9 +311,14 @@ class DiagnosticBrain:
                 return
             try:
                 providers: list[str] = ["CPUExecutionProvider"]
-                if sys.platform == "win32" and "DmlExecutionProvider" in ort.get_available_providers():
+                if (
+                    sys.platform == "win32"
+                    and "DmlExecutionProvider" in ort.get_available_providers()
+                ):
                     providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                self.session = ort.InferenceSession(str(model_path), providers=providers)
+                self.session = ort.InferenceSession(
+                    str(model_path), providers=providers
+                )
                 logger.info("DiagnosticBrain loaded via %s", providers[0])
             except ort.OrtException as e:
                 logger.warning("DiagnosticBrain failed to load ONNX session: %s", e)
@@ -417,10 +442,17 @@ class RAGIndex:
     def _tokens(text: str) -> list[str]:
         return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
 
-    def _embed(self, text: str):
+    def _embed(self, text: str) -> np.ndarray:
+        """Generate embedding vector using secure hash-based tokenization."""
+        if np is None:
+            msg = "NumPy is required for embeddings"
+            raise ImportError(msg)
         vec = np.zeros(self.DIM, dtype=np.float32)
         for tok in self._tokens(text):
-            idx = int(hashlib.md5(tok.encode("utf-8")).hexdigest()[:8], 16) % self.DIM
+            # Use SHA256 instead of MD5 for security
+            idx = (
+                int(hashlib.sha256(tok.encode("utf-8")).hexdigest()[:8], 16) % self.DIM
+            )
             vec[idx] += 1.0
         norm = float(np.linalg.norm(vec))
         if norm > 0:
@@ -429,7 +461,9 @@ class RAGIndex:
 
     def _iter_workspace_files(self):
         for root, dirs, files in os.walk(self.workspace):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in self.IGNORE_DIRS]
+            dirs[:] = [
+                d for d in dirs if not d.startswith(".") and d not in self.IGNORE_DIRS
+            ]
             for fname in files:
                 p = Path(root) / fname
                 if p.suffix.lower() not in self.TEXT_EXTS or is_sensitive_path(p):
@@ -528,13 +562,20 @@ class RAGIndex:
 class KokoroTTS:
     ASSETS: Final[dict[str, str]] = {
         "kokoro-v1.0.onnx": (
-            "https://github.com/thewh1teagle/kokoro-onnx/releases" "/download/model-files/kokoro-v1.0.onnx"
+            "https://github.com/thewh1teagle/kokoro-onnx/releases"
+            "/download/model-files/kokoro-v1.0.onnx"
         ),
         "voices-v1.0.bin": (
-            "https://github.com/thewh1teagle/kokoro-onnx/releases" "/download/model-files/voices-v1.0.bin"
+            "https://github.com/thewh1teagle/kokoro-onnx/releases"
+            "/download/model-files/voices-v1.0.bin"
         ),
     }
-    VOICE_ALIASES: Final[dict[str, str]] = {"af": "af-heart", "am": "am-adam", "bf": "bf-emma", "bm": "bm-george"}
+    VOICE_ALIASES: Final[dict[str, str]] = {
+        "af": "af-heart",
+        "am": "am-adam",
+        "bf": "bf-emma",
+        "bm": "bm-george",
+    }
 
     def __init__(self, models_dir: Path | None = None) -> None:
         self.models_dir = Path(models_dir) if models_dir else BASE_DIR / "models"
@@ -568,8 +609,13 @@ class KokoroTTS:
             onnx_path = self.models_dir / "kokoro-v1.0.onnx"
             voices_path = self.models_dir / "voices-v1.0.bin"
             if not (onnx_path.exists() and voices_path.exists()):
-                if not (self._download("kokoro-v1.0.onnx") and self._download("voices-v1.0.bin")):
-                    raise RuntimeError(f"TTS models missing. Place in: {self.models_dir}")
+                if not (
+                    self._download("kokoro-v1.0.onnx")
+                    and self._download("voices-v1.0.bin")
+                ):
+                    raise RuntimeError(
+                        f"TTS models missing. Place in: {self.models_dir}"
+                    )
             from kokoro_onnx import Kokoro
 
             logger.info("Loading Kokoro TTS...")
@@ -608,7 +654,9 @@ class KokoroTTS:
             parts.append(cur)
         return parts
 
-    async def generate_wav(self, text: str, voice: str = "af") -> tuple[bytes | None, str]:
+    async def generate_wav(
+        self, text: str, voice: str = "af"
+    ) -> tuple[bytes | None, str]:
         if not text or not str(text).strip():
             return None, "No text provided."
 
@@ -623,7 +671,9 @@ class KokoroTTS:
                     pieces: list[np.ndarray] = []
                     sr: int | None = None
                     for seg in self._split_text(str(text)):
-                        audio, sr = engine.create(seg, voice=cand, speed=1.0, lang="en-us")
+                        audio, sr = engine.create(
+                            seg, voice=cand, speed=1.0, lang="en-us"
+                        )
                         pieces.append(np.asarray(audio, dtype=np.float32))
                     if not pieces:
                         raise RuntimeError("No audio produced.")
@@ -649,7 +699,15 @@ class KokoroTTS:
 
 
 class ToolLayer:
-    DESTRUCTIVE_PATTERNS = ("rm -rf /", "rm -rf /*", "mkfs.", "format c:", "shutdown ", "reboot ", ":(){:|:&};:")
+    DESTRUCTIVE_PATTERNS = (
+        "rm -rf /",
+        "rm -rf /*",
+        "mkfs.",
+        "format c:",
+        "shutdown ",
+        "reboot ",
+        ":(){:|:&};:",
+    )
     EXEC_TIMEOUT = 60
     RUFF_TIMEOUT = 30
     MAX_OUTPUT = 100_000
@@ -681,7 +739,10 @@ class ToolLayer:
         if not p.exists() or not p.is_file():
             return {"status": "error", "error": f"Not found: {path}"}
         try:
-            return {"status": "success", "output": p.read_text(encoding="utf-8", errors="replace")}
+            return {
+                "status": "success",
+                "output": p.read_text(encoding="utf-8", errors="replace"),
+            }
         except OSError as e:
             return {"status": "error", "error": str(e)}
 
@@ -698,7 +759,11 @@ class ToolLayer:
                 self.rag.index_file(path)
             except (OSError, ValueError, TypeError) as e:
                 logger.debug("RAG index after write failed: %s", e)
-            return {"status": "success", "path": path, "bytes": len(data.encode("utf-8"))}
+            return {
+                "status": "success",
+                "path": path,
+                "bytes": len(data.encode("utf-8")),
+            }
         except OSError as e:
             return {"status": "error", "error": str(e)}
 
@@ -710,7 +775,11 @@ class ToolLayer:
         try:
             results: list[str] = []
             for root, dirs, files in os.walk(p):
-                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in RAGIndex.IGNORE_DIRS]
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not d.startswith(".") and d not in RAGIndex.IGNORE_DIRS
+                ]
                 for f in files:
                     rel = os.path.relpath(os.path.join(root, f), self.workspace)
                     if is_sensitive_path(Path(rel)):
@@ -750,19 +819,27 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def run_shell(self, command: str) -> dict:
+        """Execute shell command with security hardening."""
+        import shlex
+
         if not command or not command.strip():
             return {"status": "error", "error": "Empty command."}
+
         lowered = command.lower()
         if any(pat in lowered for pat in self.DESTRUCTIVE_PATTERNS):
             return {"status": "error", "error": "Blocked: destructive pattern."}
+
         try:
+            # Parse command safely without shell interpretation
+            cmd_list = shlex.split(command)
             proc = subprocess.run(
-                command,
-                shell=True,
+                cmd_list,
+                shell=False,
                 capture_output=True,
                 text=True,
                 cwd=self.workspace,
                 timeout=self.EXEC_TIMEOUT,
+                check=False,
             )
             output = (proc.stdout or "") + (proc.stderr or "")
             return {
@@ -772,7 +849,7 @@ class ToolLayer:
             }
         except subprocess.TimeoutExpired:
             return {"status": "error", "error": f"Timeout ({self.EXEC_TIMEOUT}s)"}
-        except (OSError, subprocess.SubprocessError) as e:
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
             return {"status": "error", "error": str(e)}
 
     def search_web(self, query: str) -> dict:
@@ -799,12 +876,16 @@ class ToolLayer:
         try:
             if not url.startswith(("http://", "https://")):
                 return {"status": "error", "error": "http(s) only."}
-            r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (RTS)"})
+            r = requests.get(
+                url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (RTS)"}
+            )
             r.raise_for_status()
             if "html" in r.headers.get("content-type", "").lower():
                 from bs4 import BeautifulSoup
 
-                text = BeautifulSoup(r.text, "html.parser").get_text(separator="\n", strip=True)
+                text = BeautifulSoup(r.text, "html.parser").get_text(
+                    separator="\n", strip=True
+                )
             else:
                 text = r.text
             return {"status": "success", "output": text[: self.MAX_FETCH_OUTPUT]}
@@ -815,7 +896,9 @@ class ToolLayer:
         """Runs lintstack engine and compresses via SmolLM."""
         try:
             # In production, this calls engine.heal() and engine.ast_pass()
-            raw_lint_output = f"AST-SYN000: {path}:42 Syntax Error\nAST-EXT005: requests unresolved"
+            raw_lint_output = (
+                f"AST-SYN000: {path}:42 Syntax Error\nAST-EXT005: requests unresolved"
+            )
             compressed = self.brain.compress_diagnostics(raw_lint_output)
             return {"status": "success", "output": compressed}
         except Exception as e:
@@ -834,7 +917,9 @@ class ToolLayer:
             if name == "read_file":
                 return self.read_file(str(args.get("path", "")))
             if name == "write_file":
-                return self.write_file(str(args.get("path", "")), str(args.get("content", "")))
+                return self.write_file(
+                    str(args.get("path", "")), str(args.get("content", ""))
+                )
             if name == "list_directory":
                 return self.list_directory(str(args.get("path", ".")))
             if name == "run_python":
@@ -860,7 +945,15 @@ class ToolLayer:
 class FailoverEntry:
     MAX_ERROR_LEN = 200
 
-    def __init__(self, name: str, provider: str, base_url: str, api_key: str, model: str, priority: int = 0) -> None:
+    def __init__(
+        self,
+        name: str,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        model: str,
+        priority: int = 0,
+    ) -> None:
         self.name = name
         self.provider = provider
         self.base_url = base_url
@@ -908,7 +1001,12 @@ class FailoverStack:
                 "writing": "writing",
                 "offline_local": "offline_local",
             }
-        priorities = {"quick_coding": 0, "complex_coding": 1, "writing": 2, "offline_local": 10}
+        priorities = {
+            "quick_coding": 0,
+            "complex_coding": 1,
+            "writing": 2,
+            "offline_local": 10,
+        }
         for role, preset_name in role_assignments.items():
             preset = AI_ROLE_PRESETS.get(preset_name)
             if not preset:
@@ -952,7 +1050,9 @@ class FailoverStack:
             entry.last_error = str(error)
             if entry.error_count >= self.MAX_ERRORS:
                 entry.dead = True
-                logger.warning("Failover '%s' DEAD after %d errors", entry.name, entry.error_count)
+                logger.warning(
+                    "Failover '%s' DEAD after %d errors", entry.name, entry.error_count
+                )
             else:
                 entry.cooldown_until = time.time() + self.COOLDOWN_SECONDS
 
@@ -968,7 +1068,9 @@ class FailoverStack:
         return {
             "active": len(self.ordered()),
             "total": len(self.entries),
-            "entries": [e.to_dict() for e in sorted(self.entries, key=lambda x: x.priority)],
+            "entries": [
+                e.to_dict() for e in sorted(self.entries, key=lambda x: x.priority)
+            ],
         }
 
 
@@ -986,7 +1088,9 @@ class AgentSwarm:
                 "description": "List files.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"path": {"type": "string", "description": "Sub-dir"}},
+                    "properties": {
+                        "path": {"type": "string", "description": "Sub-dir"}
+                    },
                     "required": [],
                 },
             },
@@ -1023,7 +1127,11 @@ class AgentSwarm:
             "function": {
                 "name": "run_python",
                 "description": "Run .py file.",
-                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
             },
         },
         {
@@ -1043,7 +1151,11 @@ class AgentSwarm:
             "function": {
                 "name": "search_web",
                 "description": "Search web.",
-                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
             },
         },
         {
@@ -1051,7 +1163,11 @@ class AgentSwarm:
             "function": {
                 "name": "fetch_url",
                 "description": "Fetch URL.",
-                "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"url": {"type": "string"}},
+                    "required": ["url"],
+                },
             },
         },
         {
@@ -1059,7 +1175,11 @@ class AgentSwarm:
             "function": {
                 "name": "run_forensic_lint",
                 "description": "Run lintstack and compress via local brain.",
-                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
             },
         },
         {
@@ -1067,7 +1187,11 @@ class AgentSwarm:
             "function": {
                 "name": "analyze_crash_dump",
                 "description": "Compress traceback via local brain.",
-                "parameters": {"type": "object", "properties": {"stderr": {"type": "string"}}, "required": ["stderr"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"stderr": {"type": "string"}},
+                    "required": ["stderr"],
+                },
             },
         },
     ]
@@ -1082,9 +1206,15 @@ class AgentSwarm:
         "- Refuse unsafe requests.\n\nOUTPUT: Concise, technical, Markdown."
     )
 
-    def __init__(self, tool_layer: ToolLayer, failover_config: FailoverStack | None = None) -> None:
+    def __init__(
+        self, tool_layer: ToolLayer, failover_config: FailoverStack | None = None
+    ) -> None:
         self.tool_layer = tool_layer
-        self.failover = failover_config if failover_config is not None else FailoverStack.load_config()
+        self.failover = (
+            failover_config
+            if failover_config is not None
+            else FailoverStack.load_config()
+        )
         self._clients: dict[str, Any] = {}
         self._no_tools: set = set()
         self.reset_clients()
@@ -1114,7 +1244,11 @@ class AgentSwarm:
         self.reset_clients()
 
     def _build_messages(
-        self, message: str, history: list | None, rag_context: str, custom_system_prompt: str = ""
+        self,
+        message: str,
+        history: list | None,
+        rag_context: str,
+        custom_system_prompt: str = "",
     ) -> list[dict]:
         sys_content = self.SYSTEM_PROMPT
         if custom_system_prompt and custom_system_prompt.strip():
@@ -1125,9 +1259,15 @@ class AgentSwarm:
         hist = [
             m
             for m in (history or [])
-            if isinstance(m, dict) and m.get("role") in ("user", "assistant") and m.get("content")
+            if isinstance(m, dict)
+            and m.get("role") in ("user", "assistant")
+            and m.get("content")
         ]
-        if hist and hist[-1].get("role") == "user" and str(hist[-1].get("content", "")).strip() == str(message).strip():
+        if (
+            hist
+            and hist[-1].get("role") == "user"
+            and str(hist[-1].get("content", "")).strip() == str(message).strip()
+        ):
             hist = hist[:-1]
         msgs.extend(hist[-12:])
         msgs.append({"role": "user", "content": message})
@@ -1149,7 +1289,9 @@ class AgentSwarm:
             yield json.dumps({"type": "error", "content": "Empty message."})
             return
         max_rounds = {"low": 1, "medium": 4, "high": 8}.get(str(effort).lower(), 4)
-        messages = self._build_messages(message, history, rag_context, custom_system_prompt)
+        messages = self._build_messages(
+            message, history, rag_context, custom_system_prompt
+        )
         rounds = 0
         attempts = 0
         while rounds < max_rounds and attempts < 24:
@@ -1164,7 +1306,11 @@ class AgentSwarm:
                 continue
             use_tools = not disable_tools and entry.name not in self._no_tools
             try:
-                kwargs: dict[str, Any] = {"model": entry.model, "messages": messages, "stream": True}
+                kwargs: dict[str, Any] = {
+                    "model": entry.model,
+                    "messages": messages,
+                    "stream": True,
+                }
                 if use_tools:
                     kwargs["tools"] = self.TOOL_SPECS
                 stream = await client.chat.completions.create(**kwargs)
@@ -1174,7 +1320,12 @@ class AgentSwarm:
                     self._no_tools.add(entry.name)
                     continue
                 self.failover.report_failure(entry, err)
-                yield json.dumps({"type": "stream", "content": f"\n\n> ⚡ `{entry.name}` failed ({err[:140]}).\n\n"})
+                yield json.dumps(
+                    {
+                        "type": "stream",
+                        "content": f"\n\n> ⚡ `{entry.name}` failed ({err[:140]}).\n\n",
+                    }
+                )
                 continue
             content_parts: list[str] = []
             tool_calls: dict[int, dict] = {}
@@ -1194,7 +1345,9 @@ class AgentSwarm:
                     if tcs:
                         for tc in tcs:
                             idx = tc.index if tc.index is not None else 0
-                            acc = tool_calls.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                            acc = tool_calls.setdefault(
+                                idx, {"id": "", "name": "", "arguments": ""}
+                            )
                             if tc.id:
                                 acc["id"] = tc.id
                             fn = getattr(tc, "function", None)
@@ -1205,9 +1358,16 @@ class AgentSwarm:
                                     acc["arguments"] += fn.arguments
             except Exception as e:
                 self.failover.report_failure(entry, str(e))
-                yield json.dumps({"type": "stream", "content": f"\n\n>  Stream broke ({str(e)[:140]}). Retrying…\n\n"})
+                yield json.dumps(
+                    {
+                        "type": "stream",
+                        "content": f"\n\n>  Stream broke ({str(e)[:140]}). Retrying…\n\n",
+                    }
+                )
                 if content_parts:
-                    messages.append({"role": "assistant", "content": "".join(content_parts)})
+                    messages.append(
+                        {"role": "assistant", "content": "".join(content_parts)}
+                    )
                 continue
             self.failover.report_success(entry)
             rounds += 1
@@ -1219,10 +1379,19 @@ class AgentSwarm:
                         {
                             "id": tc["id"] or f"call_{i}",
                             "type": "function",
-                            "function": {"name": tc["name"] or "unknown", "arguments": tc["arguments"] or "{}"},
+                            "function": {
+                                "name": tc["name"] or "unknown",
+                                "arguments": tc["arguments"] or "{}",
+                            },
                         }
                     )
-                messages.append({"role": "assistant", "content": full_text or None, "tool_calls": calls})
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": full_text or None,
+                        "tool_calls": calls,
+                    }
+                )
                 for call in calls:
                     name = call["function"]["name"]
                     try:
@@ -1233,12 +1402,22 @@ class AgentSwarm:
                         args = {}
                     res = await asyncio.to_thread(self.tool_layer.execute, name, args)
                     summary = json.dumps(res, ensure_ascii=False, default=str)
-                    yield json.dumps({"type": "tool", "name": name, "output": summary[:2000]})
-                    messages.append({"role": "tool", "tool_call_id": call["id"], "content": summary[:8000]})
+                    yield json.dumps(
+                        {"type": "tool", "name": name, "output": summary[:2000]}
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "content": summary[:8000],
+                        }
+                    )
                 continue
             if full_text:
                 messages.append({"role": "assistant", "content": full_text})
                 return
-            yield json.dumps({"type": "stream", "content": "\n\n> ⚠️ Empty. Retrying…\n\n"})
+            yield json.dumps(
+                {"type": "stream", "content": "\n\n> ⚠️ Empty. Retrying…\n\n"}
+            )
             continue
         yield json.dumps({"type": "stream", "content": "\n\n> 🛑 Budget reached.\n\n"})

@@ -179,7 +179,9 @@ class MediaLibrary:
         self.folders: list[str] = self.data.get("folders", [])
 
     def save(self):
-        atomic_write_json(LIBRARY_FILE, {"tracks": self.tracks, "folders": self.folders})
+        atomic_write_json(
+            LIBRARY_FILE, {"tracks": self.tracks, "folders": self.folders}
+        )
 
     def _extract_metadata(self, path: Path) -> dict[str, Any] | None:
         try:
@@ -278,7 +280,9 @@ class PlaylistWidget(QListWidget):
         """)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-        self.itemDoubleClicked.connect(lambda item: self.item_activated.emit(self.row(item)))
+        self.itemDoubleClicked.connect(
+            lambda item: self.item_activated.emit(self.row(item))
+        )
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -299,7 +303,9 @@ class PlaylistWidget(QListWidget):
             if url.isLocalFile():
                 p = Path(url.toLocalFile())
                 if p.is_dir():
-                    paths.extend([f for f in p.rglob("*") if f.suffix.lower() in ALL_EXTS])
+                    paths.extend(
+                        [f for f in p.rglob("*") if f.suffix.lower() in ALL_EXTS]
+                    )
                 elif p.suffix.lower() in ALL_EXTS:
                     paths.append(p)
         if paths:
@@ -372,7 +378,9 @@ class MediaSuiteWidget(QWidget):
         self._seeking = False
 
         # Config
-        self.config = load_json(CONFIG_FILE, {"volume": 80, "shuffle": False, "repeat": 0})
+        self.config = load_json(
+            CONFIG_FILE, {"volume": 80, "shuffle": False, "repeat": 0}
+        )
         self.shuffle_mode = self.config.get("shuffle", False)
         self.repeat_mode = self.config.get("repeat", 0)
 
@@ -397,20 +405,26 @@ class MediaSuiteWidget(QWidget):
 
         # Top: Video / Art
         self.video_widget = QVideoWidget()
-        self.video_widget.setStyleSheet(f"background-color: {C_BG}; border-radius: 6px;")
+        self.video_widget.setStyleSheet(
+            f"background-color: {C_BG}; border-radius: 6px;"
+        )
         self.player.setVideoOutput(self.video_widget)
         layout.addWidget(self.video_widget, stretch=1)
 
         # Middle: Now Playing & Controls
         self.now_playing = QLabel("No file loaded")
-        self.now_playing.setStyleSheet(f"color: {C_GRAY}; font-size: 12px; padding: 4px;")
+        self.now_playing.setStyleSheet(
+            f"color: {C_GRAY}; font-size: 12px; padding: 4px;"
+        )
         self.now_playing.setWordWrap(True)
         layout.addWidget(self.now_playing)
 
         # Seek Bar
         seek_layout = QHBoxLayout()
         self.time_current = QLabel("0:00")
-        self.time_current.setStyleSheet(f"color: {C_GRAY}; font-size: 11px; min-width: 40px;")
+        self.time_current.setStyleSheet(
+            f"color: {C_GRAY}; font-size: 11px; min-width: 40px;"
+        )
         seek_layout.addWidget(self.time_current)
 
         self.seek_slider = RTSlider(Qt.Orientation.Horizontal)
@@ -422,7 +436,9 @@ class MediaSuiteWidget(QWidget):
         seek_layout.addWidget(self.seek_slider, stretch=1)
 
         self.time_total = QLabel("0:00")
-        self.time_total.setStyleSheet(f"color: {C_GRAY}; font-size: 11px; min-width: 40px;")
+        self.time_total.setStyleSheet(
+            f"color: {C_GRAY}; font-size: 11px; min-width: 40px;"
+        )
         seek_layout.addWidget(self.time_total)
         layout.addLayout(seek_layout)
 
@@ -512,7 +528,10 @@ class MediaSuiteWidget(QWidget):
     # --- Playback Logic ---
     def _open_files(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Open Media", "", "Media Files (*.mp3 *.mp4 *.mkv *.wav *.flac *.aac *.ogg)"
+            self,
+            "Open Media",
+            "",
+            "Media Files (*.mp3 *.mp4 *.mkv *.wav *.flac *.aac *.ogg)",
         )
         if files:
             self._add_files([Path(f) for f in files])
@@ -643,7 +662,10 @@ class MediaSuiteWidget(QWidget):
             self.btn_play.setText("⏸ Pause")
         else:
             self.btn_play.setText("▶ Play")
-            if self.current_index != -1 and self.player.position() >= self.player.duration() - 500:
+            if (
+                self.current_index != -1
+                and self.player.position() >= self.player.duration() - 500
+            ):
                 if self.repeat_mode == 1:
                     self._play_index(self.current_index)
                 else:
@@ -675,7 +697,10 @@ class MediaSuiteWidget(QWidget):
 
     # --- Persistence ---
     def _save_playlist(self):
-        data = {"playlist": [str(p) for p in self.playlist], "current_index": self.current_index}
+        data = {
+            "playlist": [str(p) for p in self.playlist],
+            "current_index": self.current_index,
+        }
         atomic_write_json(PLAYLIST_FILE, data)
 
     def _load_saved_playlist(self):

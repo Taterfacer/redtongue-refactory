@@ -148,7 +148,12 @@ class SandboxRunner:
             }
 
         if not script.exists() or not script.is_file():
-            return {"status": "error", "output": f"File not found: {script_path}", "returncode": -1, "killed": False}
+            return {
+                "status": "error",
+                "output": f"File not found: {script_path}",
+                "returncode": -1,
+                "killed": False,
+            }
 
         cmd = [sys.executable, "-u", str(script)]
 
@@ -179,7 +184,9 @@ class SandboxRunner:
             kwargs["preexec_fn"] = preexec_fn
         else:
             # Windows: Create new process group, no console window
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            creationflags = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            )
             kwargs["creationflags"] = creationflags
 
         proc = None
@@ -213,9 +220,17 @@ class SandboxRunner:
 
         # Truncate massive outputs to prevent UI freeze
         if stdout and len(stdout) > MAX_OUTPUT_SIZE:
-            stdout = stdout[:MAX_OUTPUT_SIZE] + "\n\n[OUTPUT TRUNCATED: Exceeded 100,000 characters]"
+            stdout = (
+                stdout[:MAX_OUTPUT_SIZE]
+                + "\n\n[OUTPUT TRUNCATED: Exceeded 100,000 characters]"
+            )
 
-        return {"status": status, "output": stdout or "(no output)", "returncode": returncode, "killed": killed}
+        return {
+            "status": status,
+            "output": stdout or "(no output)",
+            "returncode": returncode,
+            "killed": killed,
+        }
 
     def execute_inline(self, code: str) -> dict:
         """
@@ -226,7 +241,11 @@ class SandboxRunner:
 
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False, dir=str(self.workspace), encoding="utf-8"
+                mode="w",
+                suffix=".py",
+                delete=False,
+                dir=str(self.workspace),
+                encoding="utf-8",
             ) as tmp:
                 tmp.write(code)
                 tmp_path = tmp.name

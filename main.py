@@ -55,7 +55,9 @@ def setup_logging() -> logging.Logger:
 
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-    fh = RotatingFileHandler(LOG_DIR / "refactory.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+    fh = RotatingFileHandler(
+        LOG_DIR / "refactory.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8"
+    )
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
 
@@ -80,7 +82,9 @@ def pip_install(packages: list[str]) -> bool:
         return True
     cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade"] + packages
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=300, check=False
+        )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         logger.error("pip install timed out.")
@@ -146,7 +150,9 @@ def create_splash(app: QApplication) -> QSplashScreen:
     painter.setPen(QColor("#8b0000"))
     title_font = QFont("Segoe UI", 22, QFont.Weight.Bold)
     painter.setFont(title_font)
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "RED TONGUE\nREFACTORY")
+    painter.drawText(
+        pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "RED TONGUE\nREFACTORY"
+    )
 
     # Draw Version
     painter.setPen(QColor("#555555"))
@@ -156,7 +162,9 @@ def create_splash(app: QApplication) -> QSplashScreen:
     painter.end()
 
     splash = QSplashScreen(pixmap)
-    splash.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+    splash.setWindowFlags(
+        Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
+    )
     return splash
 
 
@@ -176,7 +184,9 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
-    app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    app.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
 
     # 4. Show Splash Screen
     splash = create_splash(app)

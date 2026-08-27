@@ -106,7 +106,9 @@ class ConverterRegistry:
 
     @classmethod
     def list_targets(cls, src_ext: str) -> list[str]:
-        return sorted([dst for src, dst in cls._converters.keys() if src == src_ext.lower()])
+        return sorted(
+            [dst for src, dst in cls._converters.keys() if src == src_ext.lower()]
+        )
 
 
 def get_ext(path: str) -> str:
@@ -173,7 +175,9 @@ def img_to_pdf(src: Path, dst: Path, settings: ConvertSettings):
 
 
 # --- Core Converters (Audio/Video via FFmpeg) ---
-def run_ffmpeg(src: Path, dst: Path, args: list[str], progress_cb: Callable | None = None):
+def run_ffmpeg(
+    src: Path, dst: Path, args: list[str], progress_cb: Callable | None = None
+):
     cmd = ["ffmpeg", "-y", "-i", str(src)] + args + [str(dst)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if proc.returncode != 0:
@@ -282,7 +286,9 @@ class ConversionWorker(QThread):
                     continue
 
                 converter(src, dst_path, settings)
-                self.log_message.emit(f"Converted: {src.name} -> {dst_path.name}", "success")
+                self.log_message.emit(
+                    f"Converted: {src.name} -> {dst_path.name}", "success"
+                )
                 ok += 1
             except Exception as e:
                 self.log_message.emit(f"Failed: {src.name} ({e!s})", "error")
@@ -345,7 +351,9 @@ class AlchemistWindow(QMainWindow):
         preview_layout = QVBoxLayout(preview_group)
         self.preview_label = QLabel("Select a file to preview")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setStyleSheet(f"background: {C_INPUT}; border-radius: 4px; min-height: 150px;")
+        self.preview_label.setStyleSheet(
+            f"background: {C_INPUT}; border-radius: 4px; min-height: 150px;"
+        )
         preview_layout.addWidget(self.preview_label)
         center_splitter.addWidget(preview_group)
 
@@ -420,7 +428,9 @@ class AlchemistWindow(QMainWindow):
 
     def _connect_signals(self):
         self.tool_manager.status_update.connect(lambda msg: self._log(msg, "info"))
-        self.tool_manager.tools_ready.connect(lambda: self._log("Tools initialized.", "success"))
+        self.tool_manager.tools_ready.connect(
+            lambda: self._log("Tools initialized.", "success")
+        )
         self.file_list.itemSelectionChanged.connect(self._update_preview)
 
     def _add_files(self):
@@ -466,7 +476,9 @@ class AlchemistWindow(QMainWindow):
             except Exception as e:
                 self.preview_label.setText(f"Preview error: {e}")
         else:
-            self.preview_label.setText(f"File: {path.name}\nSize: {path.stat().st_size} bytes")
+            self.preview_label.setText(
+                f"File: {path.name}\nSize: {path.stat().st_size} bytes"
+            )
 
     def _start_conversion(self):
         if not self.files:
@@ -501,7 +513,11 @@ class AlchemistWindow(QMainWindow):
                 tasks.append((src, target, out_dir, self.settings))
 
         if not tasks:
-            QMessageBox.warning(self, "No Valid Tasks", "No compatible converters found for selected files/formats.")
+            QMessageBox.warning(
+                self,
+                "No Valid Tasks",
+                "No compatible converters found for selected files/formats.",
+            )
             return
 
         self.btn_convert.setEnabled(False)

@@ -119,8 +119,17 @@ class Issue:
 
     def compute_keys(self) -> "Issue":
         """Generates fingerprint and dedupe keys for the issue."""
-        self.fingerprint = fingerprint(self.source, self.code, self.message, self.path, self.qualname, self.line_start)
-        self.dedupe_key = "\x1f".join((self.source, self.code, self.path, str(self.line_start), self.message))
+        self.fingerprint = fingerprint(
+            self.source,
+            self.code,
+            self.message,
+            self.path,
+            self.qualname,
+            self.line_start,
+        )
+        self.dedupe_key = "\x1f".join(
+            (self.source, self.code, self.path, str(self.line_start), self.message)
+        )
         return self
 
     def to_row(self, run_id: int, created_utc: str) -> tuple:
@@ -257,9 +266,18 @@ def setup_logging(logs_dir: Path, verbose: bool = False) -> logging.Logger:
         sh.setLevel(logging.DEBUG if verbose else logging.WARNING)
         sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 
-        fh = RotatingFileHandler(logs_dir / "lintstack.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        fh = RotatingFileHandler(
+            logs_dir / "lintstack.log",
+            maxBytes=2_000_000,
+            backupCount=3,
+            encoding="utf-8",
+        )
         fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"))
+        fh.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"
+            )
+        )
 
         lg.addHandler(sh)
         lg.addHandler(fh)
@@ -285,7 +303,9 @@ def normalize_message(message: str) -> str:
     return _RX_WS.sub(" ", s).strip().lower()
 
 
-def fingerprint(source: str, code: str, message: str, path: str, qualname: str, line_start: int) -> str:
+def fingerprint(
+    source: str, code: str, message: str, path: str, qualname: str, line_start: int
+) -> str:
     """Generates a 16-char deterministic fingerprint for an issue."""
     line_bucket = max(line_start, 0) // 10
     basis = "\x1f".join(
@@ -615,7 +635,9 @@ class Governor:
         if dt <= 0.0:
             dt = 1e-6
 
-        total_delta = (ticks_self - self._prev_ticks[0]) + (ticks_children - self._prev_ticks[1])
+        total_delta = (ticks_self - self._prev_ticks[0]) + (
+            ticks_children - self._prev_ticks[1]
+        )
         pct = total_delta / (_TICKS * dt * cpu_core_count()) * 100.0
         pct = max(0.0, min(pct, 400.0))
 
@@ -646,7 +668,9 @@ class Governor:
             "p1": psi_eff >= c.gov_soft_psi or avail_inf < c.gov_soft_avail_mb,
             "p2": psi_eff >= c.gov_hard_psi or avail_inf < c.gov_hard_avail_mb,
             "p3": psi_eff >= c.gov_pause_psi or avail_inf < c.gov_pause_avail_mb,
-            "recover_ok": (psi_eff < c.gov_hard_psi and avail_inf > c.gov_soft_avail_mb),
+            "recover_ok": (
+                psi_eff < c.gov_hard_psi and avail_inf > c.gov_soft_avail_mb
+            ),
         }
 
     def _advance(self, s: LoadSample) -> None:
@@ -655,7 +679,9 @@ class Governor:
         self._hist.append(cls)
         n = len(self._hist)
 
-        pause_avail_instant = s.avail_mb is not None and s.avail_mb < self.cfg.gov_pause_avail_mb
+        pause_avail_instant = (
+            s.avail_mb is not None and s.avail_mb < self.cfg.gov_pause_avail_mb
+        )
         if not self._in_pause and pause_avail_instant:
             self._enter_pause(reason="avail-floor")
 
@@ -771,7 +797,9 @@ class Store:
         self._lock = threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None)
+        self._conn = sqlite3.connect(
+            str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None
+        )
         # Potato PC optimized: 2MB cache, WAL mode
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -793,16 +821,51 @@ class Store:
         """Starts a new forensic run and returns the run ID."""
         with self._lock:
             cursor = self._conn.execute(
-                "INSERT INTO runs (verb, mode, started_utc) VALUES (?, ?, ?)", (verb, mode, iso_utc())
+                "INSERT INTO runs (verb, mode, started_utc) VALUES (?, ?, ?)",
+                (verb, mode, iso_utc()),
             )
             return cursor.lastrowid
 
     def finalize_run(self, run_id: int, **fields: Any) -> None:
-        """Finalizes a forensic run."""
+        """Finalizes a forensic run with parameterized queries.
+
+        Args:
+            run_id: The database ID of the run to finalize.
+            **fields: Keyword arguments for columns to update. Only whitelisted
+                     columns are accepted to prevent SQL injection.
+
+        Raises:
+            ValueError: If an invalid column name is provided.
+        """
+        # Whitelist allowed column names to prevent SQL injection
+        ALLOWED_COLUMNS: Final[frozenset[str]] = frozenset(
+            {
+                "ended_utc",
+                "exit_code",
+                "artifacts_json",
+                "issues_json",
+                "notes",
+                "status",
+            }
+        )
+
         with self._lock:
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            vals = list(fields.values()) + [run_id]
-            self._conn.execute(f"UPDATE runs SET {sets} WHERE id = ?", vals)
+            # Validate and filter field names
+            validated_fields: dict[str, Any] = {}
+            for key, value in fields.items():
+                if key not in ALLOWED_COLUMNS:
+                    msg = f"Invalid column name: {key}. Allowed: {ALLOWED_COLUMNS}"
+                    raise ValueError(msg)
+                validated_fields[key] = value
+
+            if not validated_fields:
+                return  # Nothing to update
+
+            # Build query with validated column names (safe due to whitelist)
+            sets = ", ".join(f"{k} = ?" for k in validated_fields)
+            vals = list(validated_fields.values()) + [run_id]
+            self._conn.execute(f"UPDATE runs SET {sets} WHERE id = ?", vals)  # nosec B608 - column names validated against whitelist
+            self._conn.commit()
 
     def add_issues(self, run_id: int, issues: Iterator[Issue]) -> int:
         """Bulk inserts issues for a run."""

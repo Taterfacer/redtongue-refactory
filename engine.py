@@ -44,7 +44,14 @@ class EngineUnavailable(LintStackError):
 
 
 _BUILTIN_NAMES = frozenset(n for n in dir(builtins) if not n.startswith("_"))
-_JUNK_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".lintstack", ".red_tongue_index"}
+_JUNK_DIRS = {
+    ".git",
+    "__pycache__",
+    ".venv",
+    "node_modules",
+    ".lintstack",
+    ".red_tongue_index",
+}
 
 # ==============================================================================
 # Interpreter Detection (Cross-Platform)
@@ -68,7 +75,11 @@ def detect_target(cfg: Any, log: logging.Logger) -> tuple[str, str]:
         if py_exe:
             try:
                 proc = subprocess.run(
-                    [py_exe, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                    [
+                        py_exe,
+                        "-c",
+                        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=5,
@@ -86,7 +97,11 @@ def detect_target(cfg: Any, log: logging.Logger) -> tuple[str, str]:
         if exe:
             try:
                 proc = subprocess.run(
-                    [exe, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                    [
+                        exe,
+                        "-c",
+                        "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=5,
@@ -151,7 +166,13 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
                 digest = f"{st.st_size}:{st.st_mtime_ns}"
 
                 files.append(
-                    DiscoveredFile(rel=rel, abs=abs_path, size=st.st_size, mtime_ns=st.st_mtime_ns, sha256=digest)
+                    DiscoveredFile(
+                        rel=rel,
+                        abs=abs_path,
+                        size=st.st_size,
+                        mtime_ns=st.st_mtime_ns,
+                        sha256=digest,
+                    )
                 )
                 changed.append(rel)
                 read_total += st.st_size
@@ -159,7 +180,12 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
                 log.warning(f"Failed to stat {abs_path}: {e}")
                 continue
 
-    return DiscoveryResult(files=files, changed=changed, total_bytes_read=read_total, elapsed_s=time.monotonic() - t0)
+    return DiscoveryResult(
+        files=files,
+        changed=changed,
+        total_bytes_read=read_total,
+        elapsed_s=time.monotonic() - t0,
+    )
 
 
 # ==============================================================================
@@ -272,7 +298,11 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
                         )
 
                 # 3. Argument Shadowing
-                all_args = node.args.args + node.args.kwonlyargs + getattr(node.args, "posonlyargs", [])
+                all_args = (
+                    node.args.args
+                    + node.args.kwonlyargs
+                    + getattr(node.args, "posonlyargs", [])
+                )
                 for arg in all_args:
                     if arg.arg in _BUILTIN_NAMES:
                         issues.append(
@@ -334,7 +364,9 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
 # ==============================================================================
 
 
-def run_ruff(cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger) -> list[Issue]:
+def run_ruff(
+    cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger
+) -> list[Issue]:
     """
     Executes Ruff for standard linting.
     Returns a list of Issue objects parsed from Ruff's JSON output.
@@ -368,7 +400,9 @@ def run_ruff(cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger) -> 
                                     source="ruff",
                                     code=ri.get("code", "RUFF-UNK"),
                                     severity="MEDIUM",  # Ruff doesn't strictly categorize severity
-                                    path=Path(ri.get("filename", "")).relative_to(project_root).as_posix(),
+                                    path=Path(ri.get("filename", ""))
+                                    .relative_to(project_root)
+                                    .as_posix(),
                                     line_start=ri.get("location", {}).get("row", 0),
                                     col=ri.get("location", {}).get("column", 0),
                                     message=ri.get("message", ""),
@@ -405,7 +439,9 @@ class EngineContext:
     steps: dict
 
 
-def heal(layout: Any, cfg: Any, verbose: bool = False) -> tuple[EngineContext, str | None]:
+def heal(
+    layout: Any, cfg: Any, verbose: bool = False
+) -> tuple[EngineContext, str | None]:
     """
     Idempotent bring-up of the forensic environment.
     Ensures interpreter and Ruff are available.
@@ -428,7 +464,9 @@ def heal(layout: Any, cfg: Any, verbose: bool = False) -> tuple[EngineContext, s
 
     if ruff_exe:
         try:
-            proc = subprocess.run([ruff_exe, "--version"], capture_output=True, text=True, timeout=5)
+            proc = subprocess.run(
+                [ruff_exe, "--version"], capture_output=True, text=True, timeout=5
+            )
             if proc.returncode == 0:
                 ruff_version = proc.stdout.strip().split()[-1]
         except (OSError, subprocess.SubprocessError):
@@ -443,7 +481,11 @@ def heal(layout: Any, cfg: Any, verbose: bool = False) -> tuple[EngineContext, s
         python_target=py_target,
         ruff_argv=ruff_argv,
         ruff_version=ruff_version,
-        steps={"interpreter": "ok", "store": "ok", "ruff": "ok" if ruff_exe else "degraded"},
+        steps={
+            "interpreter": "ok",
+            "store": "ok",
+            "ruff": "ok" if ruff_exe else "degraded",
+        },
     )
 
     return ctx, None

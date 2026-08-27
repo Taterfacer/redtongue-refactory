@@ -86,15 +86,27 @@ class RipperDB:
                 )
             """)
 
-    def add_entry(self, url: str, title: str, mode: str, fmt: str, status: str, file_path: str):
+    def add_entry(
+        self, url: str, title: str, mode: str, fmt: str, status: str, file_path: str
+    ):
         with self.conn:
             self.conn.execute(
                 "INSERT INTO history (url, title, mode, fmt, status, file_path, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (url, title, mode, fmt, status, file_path, time.strftime("%Y-%m-%d %H:%M:%S")),
+                (
+                    url,
+                    title,
+                    mode,
+                    fmt,
+                    status,
+                    file_path,
+                    time.strftime("%Y-%m-%d %H:%M:%S"),
+                ),
             )
 
     def get_history(self, limit: int = 50) -> list[tuple]:
-        cursor = self.conn.execute("SELECT * FROM history ORDER BY id DESC LIMIT ?", (limit,))
+        cursor = self.conn.execute(
+            "SELECT * FROM history ORDER BY id DESC LIMIT ?", (limit,)
+        )
         return cursor.fetchall()
 
     def clear_history(self):
@@ -298,7 +310,9 @@ class RipperWindow(QMainWindow):
         opts_layout.addWidget(self.mode_combo)
 
         self.quality_combo = QComboBox()
-        self.quality_combo.addItems(["Best", "High (1080p/320k)", "Medium (720p/192k)", "Low (480p/128k)"])
+        self.quality_combo.addItems(
+            ["Best", "High (1080p/320k)", "Medium (720p/192k)", "Low (480p/128k)"]
+        )
         opts_layout.addWidget(QLabel("Quality:"))
         opts_layout.addWidget(self.quality_combo)
 
@@ -322,7 +336,9 @@ class RipperWindow(QMainWindow):
 
         self.queue_scroll = QScrollArea()
         self.queue_scroll.setWidgetResizable(True)
-        self.queue_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.queue_scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
 
         self.queue_container = QWidget()
         self.queue_layout = QVBoxLayout(self.queue_container)
@@ -346,7 +362,11 @@ class RipperWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):
-        urls = [url.toString() for url in event.mimeData().urls() if url.toString().startswith("http")]
+        urls = [
+            url.toString()
+            for url in event.mimeData().urls()
+            if url.toString().startswith("http")
+        ]
         if urls:
             self.url_input.setText(urls[0])
             self._add_to_queue()
@@ -359,7 +379,9 @@ class RipperWindow(QMainWindow):
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
-            "outtmpl": os.path.join(Path.home(), "Downloads", "RedTongue", "%(title)s.%(ext)s"),
+            "outtmpl": os.path.join(
+                Path.home(), "Downloads", "RedTongue", "%(title)s.%(ext)s"
+            ),
         }
 
         if "Audio" in mode:
@@ -368,7 +390,11 @@ class RipperWindow(QMainWindow):
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
-                    "preferredquality": "320" if "Best" in quality else "192" if "High" in quality else "128",
+                    "preferredquality": "320"
+                    if "Best" in quality
+                    else "192"
+                    if "High" in quality
+                    else "128",
                 }
             ]
         else:
@@ -399,13 +425,20 @@ class RipperWindow(QMainWindow):
 
         # Create UI Widget
         item_widget = DownloadItemWidget(url)
-        item_widget.cancel_requested.connect(lambda: self._cancel_download(id(item_widget)))
+        item_widget.cancel_requested.connect(
+            lambda: self._cancel_download(id(item_widget))
+        )
 
         # Insert before the stretch
         self.queue_layout.insertWidget(self.queue_layout.count() - 1, item_widget)
 
         # Add to logic queue
-        task = {"id": id(item_widget), "url": url, "widget": item_widget, "opts": self._get_opts()}
+        task = {
+            "id": id(item_widget),
+            "url": url,
+            "widget": item_widget,
+            "opts": self._get_opts(),
+        }
         self.download_queue.append(task)
         self._process_queue()
 
@@ -420,7 +453,9 @@ class RipperWindow(QMainWindow):
         worker = YtDlpWorker(task["url"], task["opts"])
         worker.progress.connect(lambda pct, txt, w=widget: w.update_progress(pct, txt))
         worker.finished.connect(
-            lambda ok, title, path, w=widget, u=task["url"]: self._on_finished(ok, title, path, w, u)
+            lambda ok, title, path, w=widget, u=task["url"]: self._on_finished(
+                ok, title, path, w, u
+            )
         )
 
         self.active_workers[task["id"]] = worker
@@ -430,7 +465,9 @@ class RipperWindow(QMainWindow):
         # Process next if possible
         self._process_queue()
 
-    def _on_finished(self, success: bool, title: str, path: str, widget: DownloadItemWidget, url: str):
+    def _on_finished(
+        self, success: bool, title: str, path: str, widget: DownloadItemWidget, url: str
+    ):
         widget_id = id(widget)
         self.active_workers.pop(widget_id, None)
 

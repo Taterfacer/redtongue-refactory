@@ -95,7 +95,9 @@ class DataManager:
             "use_24h": False,
             "sessions": [],
             "tasks": [],
-            "notes": [{"id": "default", "title": "Quick Notes", "content": "", "updated": ""}],
+            "notes": [
+                {"id": "default", "title": "Quick Notes", "content": "", "updated": ""}
+            ],
             "settings": {
                 "focus_duration": 25,
                 "short_break": 5,
@@ -141,7 +143,9 @@ class DataManager:
             self._data.setdefault("settings", {})[key] = value
         self.save()
 
-    def add_session(self, duration_sec: int, session_type: str = "focus", completed: bool = True) -> None:
+    def add_session(
+        self, duration_sec: int, session_type: str = "focus", completed: bool = True
+    ) -> None:
         session = {
             "id": datetime.now().isoformat(),
             "date": datetime.now().strftime("%Y-%m-%d"),
@@ -158,11 +162,17 @@ class DataManager:
         if date_str is None:
             date_str = datetime.now().strftime("%Y-%m-%d")
         with self._lock:
-            return [s for s in self._data.get("sessions", []) if s.get("date") == date_str]
+            return [
+                s for s in self._data.get("sessions", []) if s.get("date") == date_str
+            ]
 
     def get_total_focus_time_today(self) -> int:
         sessions = self.get_sessions()
-        return sum(s["duration"] for s in sessions if s.get("type") == "focus" and s.get("completed"))
+        return sum(
+            s["duration"]
+            for s in sessions
+            if s.get("type") == "focus" and s.get("completed")
+        )
 
     def add_task(self, text: str, priority: str = "normal") -> dict:
         task = {
@@ -194,13 +204,17 @@ class DataManager:
                     for k, v in kwargs.items():
                         task[k] = v
                     if kwargs.get("completed") and not task.get("completed_date"):
-                        task["completed_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        task["completed_date"] = datetime.now().strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
                     break
         self.save()
 
     def delete_task(self, task_id: str) -> None:
         with self._lock:
-            self._data["tasks"] = [t for t in self._data.get("tasks", []) if t.get("id") != task_id]
+            self._data["tasks"] = [
+                t for t in self._data.get("tasks", []) if t.get("id") != task_id
+            ]
         self.save()
 
     def get_notes(self) -> list[dict]:
@@ -240,17 +254,35 @@ class SoundSynthesizer:
 
             for i in range(num_samples):
                 if sound_type == "classic":
-                    val = amplitude if int(i * 1000 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
+                    val = (
+                        amplitude
+                        if int(i * 1000 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0
+                        else -amplitude
+                    )
                 elif sound_type == "done":
                     notes = [523, 659, 784, 1047]
                     note_idx = int((i / num_samples) * 4) % 4
-                    val = amplitude if int(i * notes[note_idx] / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
+                    val = (
+                        amplitude
+                        if int(i * notes[note_idx] / SoundSynthesizer.SAMPLE_RATE) % 2
+                        == 0
+                        else -amplitude
+                    )
                 elif sound_type == "break":
                     notes = [784, 659, 523, 392]
                     note_idx = int((i / num_samples) * 4) % 4
-                    val = amplitude if int(i * notes[note_idx] / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
+                    val = (
+                        amplitude
+                        if int(i * notes[note_idx] / SoundSynthesizer.SAMPLE_RATE) % 2
+                        == 0
+                        else -amplitude
+                    )
                 else:
-                    val = amplitude if int(i * 800 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
+                    val = (
+                        amplitude
+                        if int(i * 800 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0
+                        else -amplitude
+                    )
 
                 # Simple decay envelope
                 decay = 1.0 - (i / num_samples) * 0.5
@@ -281,7 +313,9 @@ class TimerPage(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.mode_label = QLabel("FOCUS TIME")
-        self.mode_label.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_GRAY}; letter-spacing: 2px;")
+        self.mode_label.setStyleSheet(
+            f"font-size: 24px; font-weight: bold; color: {C_GRAY}; letter-spacing: 2px;"
+        )
         layout.addWidget(self.mode_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.time_label = QLabel("25:00")
@@ -293,10 +327,14 @@ class TimerPage(QWidget):
         self.progress_bar = QFrame()
         self.progress_bar.setFixedHeight(8)
         self.progress_bar.setFixedWidth(500)
-        self.progress_bar.setStyleSheet(f"background-color: {C_INPUT}; border-radius: 4px;")
+        self.progress_bar.setStyleSheet(
+            f"background-color: {C_INPUT}; border-radius: 4px;"
+        )
         self.progress_fill = QFrame(self.progress_bar)
         self.progress_fill.setFixedHeight(8)
-        self.progress_fill.setStyleSheet(f"background-color: {C_RED}; border-radius: 4px;")
+        self.progress_fill.setStyleSheet(
+            f"background-color: {C_RED}; border-radius: 4px;"
+        )
         layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
         btn_layout = QHBoxLayout()
@@ -329,7 +367,11 @@ class TimerPage(QWidget):
         self.btn_long = QPushButton("Long Break")
         for b in [self.btn_focus, self.btn_short, self.btn_long]:
             b.setFixedHeight(36)
-            b.clicked.connect(lambda checked, m=b.text().lower().replace(" ", "_"): self._user_set_mode(m))
+            b.clicked.connect(
+                lambda checked, m=b.text().lower().replace(" ", "_"): (
+                    self._user_set_mode(m)
+                )
+            )
             mode_layout.addWidget(b)
 
         layout.addSpacing(20)
@@ -348,15 +390,21 @@ class TimerPage(QWidget):
         if mode == "focus":
             mins = self.dm.get_setting("focus_duration", 25)
             self.mode_label.setText("FOCUS TIME")
-            self.progress_fill.setStyleSheet(f"background-color: {C_RED}; border-radius: 4px;")
+            self.progress_fill.setStyleSheet(
+                f"background-color: {C_RED}; border-radius: 4px;"
+            )
         elif mode == "short_break":
             mins = self.dm.get_setting("short_break", 5)
             self.mode_label.setText("SHORT BREAK")
-            self.progress_fill.setStyleSheet(f"background-color: {C_GREEN}; border-radius: 4px;")
+            self.progress_fill.setStyleSheet(
+                f"background-color: {C_GREEN}; border-radius: 4px;"
+            )
         else:
             mins = self.dm.get_setting("long_break", 15)
             self.mode_label.setText("LONG BREAK")
-            self.progress_fill.setStyleSheet(f"background-color: {C_YELLOW}; border-radius: 4px;")
+            self.progress_fill.setStyleSheet(
+                f"background-color: {C_YELLOW}; border-radius: 4px;"
+            )
 
         self.total_s = mins * 60
         self.remaining_s = self.total_s
@@ -395,12 +443,18 @@ class TimerPage(QWidget):
 
         # Play sound
         sound_path = CONFIG_DIR / "sounds" / f"{self.mode}.wav"
-        SoundSynthesizer.generate(sound_path, sound_type=self.mode, volume=self.dm.get_setting("voice_volume", 80))
+        SoundSynthesizer.generate(
+            sound_path,
+            sound_type=self.mode,
+            volume=self.dm.get_setting("voice_volume", 80),
+        )
         self.audio.setSource(QUrl.fromLocalFile(str(sound_path)))
         self.audio.play()
 
         if self.mode == "focus":
-            self.dm.add_session(self.dm.get_setting("focus_duration", 25) * 60, "focus", completed=True)
+            self.dm.add_session(
+                self.dm.get_setting("focus_duration", 25) * 60, "focus", completed=True
+            )
             self._set_mode("short_break")
         else:
             self._set_mode("focus")
@@ -427,7 +481,9 @@ class TasksPage(QWidget):
 
         header = QHBoxLayout()
         title = QLabel("TASKS")
-        title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
+        title.setStyleSheet(
+            f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;"
+        )
         header.addWidget(title)
         header.addStretch()
         layout.addLayout(header)
@@ -481,7 +537,9 @@ class TasksPage(QWidget):
         from PyQt6.QtWidgets import QMenu
 
         menu = QMenu(self)
-        menu.setStyleSheet(f"background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER};")
+        menu.setStyleSheet(
+            f"background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER};"
+        )
 
         toggle_action = menu.addAction("Toggle Complete")
         delete_action = menu.addAction("Delete")
@@ -513,7 +571,9 @@ class NotesPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         title = QLabel("QUICK NOTES")
-        title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
+        title.setStyleSheet(
+            f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;"
+        )
         layout.addWidget(title)
 
         self.editor = QPlainTextEdit()
@@ -557,7 +617,9 @@ class StatsPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         title = QLabel("STATISTICS")
-        title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
+        title.setStyleSheet(
+            f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;"
+        )
         layout.addWidget(title)
 
         self.stats_layout = QHBoxLayout()
@@ -576,10 +638,16 @@ class StatsPage(QWidget):
 
         today = datetime.now().strftime("%Y-%m-%d")
         today_sessions = [
-            s for s in sessions if s.get("date") == today and s.get("type") == "focus" and s.get("completed")
+            s
+            for s in sessions
+            if s.get("date") == today
+            and s.get("type") == "focus"
+            and s.get("completed")
         ]
         today_mins = sum(s.get("duration", 0) for s in today_sessions) // 60
-        tasks_done = sum(1 for t in tasks if t.get("completed_date", "").startswith(today))
+        tasks_done = sum(
+            1 for t in tasks if t.get("completed_date", "").startswith(today)
+        )
 
         for label, val, color in [
             ("Focus Today", f"{today_mins}m", C_RED),
@@ -588,7 +656,9 @@ class StatsPage(QWidget):
         ]:
             card = QFrame()
             card.setObjectName("Panel")
-            card.setStyleSheet(f"background-color: {C_PANEL}; border: 1px solid {C_BORDER}; border-radius: 8px;")
+            card.setStyleSheet(
+                f"background-color: {C_PANEL}; border: 1px solid {C_BORDER}; border-radius: 8px;"
+            )
             c_layout = QVBoxLayout(card)
             c_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -633,13 +703,17 @@ class FocusStudioWindow(QMainWindow):
         # Sidebar
         sidebar = QFrame()
         sidebar.setFixedWidth(220)
-        sidebar.setStyleSheet(f"background-color: {C_PANEL}; border-right: 1px solid {C_BORDER};")
+        sidebar.setStyleSheet(
+            f"background-color: {C_PANEL}; border-right: 1px solid {C_BORDER};"
+        )
         s_layout = QVBoxLayout(sidebar)
         s_layout.setContentsMargins(10, 20, 10, 20)
         s_layout.setSpacing(8)
 
         logo = QLabel("RED TONGUE")
-        logo.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {C_RED}; letter-spacing: 1px;")
+        logo.setStyleSheet(
+            f"font-size: 18px; font-weight: bold; color: {C_RED}; letter-spacing: 1px;"
+        )
         s_layout.addWidget(logo)
         sub = QLabel("FOCUS DECK")
         sub.setStyleSheet(f"font-size: 12px; color: {C_GRAY}; margin-bottom: 20px;")
@@ -660,7 +734,12 @@ class FocusStudioWindow(QMainWindow):
 
         # Nav Buttons
         self.nav_btns = []
-        nav_items = [("⏱  Timer", 0), ("☑  Tasks", 1), ("📝  Notes", 2), ("📊  Stats", 3)]
+        nav_items = [
+            ("⏱  Timer", 0),
+            ("☑  Tasks", 1),
+            ("📝  Notes", 2),
+            ("📊  Stats", 3),
+        ]
         for text, idx in nav_items:
             btn = QPushButton(text)
             btn.setCheckable(True)

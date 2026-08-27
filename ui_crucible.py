@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -78,12 +79,18 @@ def load_redtongue_logo(target_size=200):
         pixmap = QPixmap(str(local_logo))
         if not pixmap.isNull():
             return pixmap.scaled(
-                target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                target_size,
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
     pixmap = QPixmap()
     pixmap.loadFromData(QByteArray.fromBase64(LOGO_B64.encode()))
     return pixmap.scaled(
-        target_size, target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        target_size,
+        target_size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
     )
 
 
@@ -110,7 +117,9 @@ class SectionCard(QFrame):
         num_label.setFixedSize(28, 28)
         num_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         num_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        num_label.setStyleSheet(f"background-color: {C_RED}; color: {C_WHITE}; border-radius: 14px;")
+        num_label.setStyleSheet(
+            f"background-color: {C_RED}; color: {C_WHITE}; border-radius: 14px;"
+        )
         header_layout.addWidget(num_label)
 
         title_label = QLabel(title)
@@ -215,7 +224,9 @@ class NuitkaBuildThread(QThread):
     finished_build = pyqtSignal(bool, str, str)
     progress = pyqtSignal(int, str)
 
-    def __init__(self, script_path, output_dir, python_exe, icon_path=None, options=None):
+    def __init__(
+        self, script_path, output_dir, python_exe, icon_path=None, options=None
+    ):
         super().__init__()
         self.script_path = Path(script_path)
         self.output_dir = Path(output_dir)
@@ -234,7 +245,10 @@ class NuitkaBuildThread(QThread):
             self.progress.emit(5, "Checking tools...")
             try:
                 result = subprocess.run(
-                    [self.python_exe, "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=30
+                    [self.python_exe, "-m", "nuitka", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 version = result.stdout.strip().split("\n")[0]
                 self.output.emit(f"  Nuitka version: {version}", "success")
@@ -265,7 +279,11 @@ class NuitkaBuildThread(QThread):
                 cmd.append(f"--jobs={jobs}")
 
             if prepared_icon:
-                flag = "--windows-icon-from-ico" if sys.platform == "win32" else "--linux-icon"
+                flag = (
+                    "--windows-icon-from-ico"
+                    if sys.platform == "win32"
+                    else "--linux-icon"
+                )
                 cmd.append(f"{flag}={prepared_icon}")
 
             cmd.append(f"--output-dir={self.output_dir}")
@@ -276,15 +294,21 @@ class NuitkaBuildThread(QThread):
 
             for dir_spec in self.options.get("data_dirs", []):
                 cmd.append(f"--include-data-dir={dir_spec}")
-                self.output.emit(f"  Including directory: {dir_spec.split('=')[0]}", "info")
+                self.output.emit(
+                    f"  Including directory: {dir_spec.split('=')[0]}", "info"
+                )
 
             if sys.platform == "win32":
                 if self.options.get("app_name"):
                     cmd.append(f"--windows-product-name={self.options.get('app_name')}")
                 if self.options.get("app_version"):
-                    cmd.append(f"--windows-product-version={self.options.get('app_version')}")
+                    cmd.append(
+                        f"--windows-product-version={self.options.get('app_version')}"
+                    )
                 if self.options.get("app_company"):
-                    cmd.append(f"--windows-company-name={self.options.get('app_company')}")
+                    cmd.append(
+                        f"--windows-company-name={self.options.get('app_company')}"
+                    )
                 if self.options.get("run_as_admin"):
                     cmd.append("--windows-uac-admin")
 
@@ -366,19 +390,31 @@ class NuitkaBuildThread(QThread):
             self.progress.emit(95, "Finalizing...")
 
             if self.process.returncode == 0:
-                exe_name = self.script_path.stem + (".exe" if sys.platform == "win32" else "")
+                exe_name = self.script_path.stem + (
+                    ".exe" if sys.platform == "win32" else ""
+                )
                 found_exe = self.output_dir / exe_name
                 if found_exe.exists():
                     size_str = format_size(found_exe.stat().st_size)
                     self.output.emit(f"  ✓ SUCCESS! Executable: {found_exe}", "success")
                     self.progress.emit(100, "Done!")
-                    self.finished_build.emit(True, f"Executable: {found_exe}\nSize: {size_str}", str(found_exe))
+                    self.finished_build.emit(
+                        True,
+                        f"Executable: {found_exe}\nSize: {size_str}",
+                        str(found_exe),
+                    )
                 else:
-                    self.finished_build.emit(True, str(self.output_dir), str(self.output_dir))
+                    self.finished_build.emit(
+                        True, str(self.output_dir), str(self.output_dir)
+                    )
             else:
-                self.output.emit(f"  ✗ BUILD FAILED (code {self.process.returncode})", "error")
+                self.output.emit(
+                    f"  ✗ BUILD FAILED (code {self.process.returncode})", "error"
+                )
                 self.progress.emit(0, "Failed")
-                self.finished_build.emit(False, f"Nuitka exited with code {self.process.returncode}", "")
+                self.finished_build.emit(
+                    False, f"Nuitka exited with code {self.process.returncode}", ""
+                )
 
         except Exception as e:
             self.output.emit(f"  CRITICAL ERROR: {e!s}", "error")
@@ -404,24 +440,55 @@ class NuitkaBuildThread(QThread):
 
         zip_path = upx_dir / "upx_download.zip"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "RedTongue Crucible"})
-            with urllib.request.urlopen(req) as response, open(zip_path, "wb") as out_file:
+            # Validate URL scheme to prevent SSRF
+            parsed_url = urllib.parse.urlparse(url)
+            if parsed_url.scheme not in ("https",):
+                msg = f"Invalid URL scheme: {parsed_url.scheme}. Only HTTPS allowed."
+                raise ValueError(msg)
+
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "RedTongue Crucible"}
+            )
+            with (
+                urllib.request.urlopen(req, timeout=30) as response,
+                open(zip_path, "wb") as out_file,
+            ):  # nosec B310 - URL scheme validated as HTTPS only
                 out_file.write(response.read())
 
             self.output.emit("  Extracting UPX...", "info")
             if url.endswith(".zip"):
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    # Validate paths before extraction
+                    for member in zip_ref.namelist():
+                        member_path = (upx_dir / member).resolve()
+                        if not str(member_path).startswith(str(upx_dir.resolve())):
+                            msg = f"Unsafe path in archive: {member}"
+                            raise ValueError(msg)
                     zip_ref.extractall(upx_dir)
             else:
                 import tarfile
 
                 with tarfile.open(zip_path, "r:xz") as tar_ref:
-                    tar_ref.extractall(upx_dir)
+                    # Validate members before extraction to prevent path traversal
+                    safe_members = []
+                    upx_resolved = upx_dir.resolve()
+                    for member in tar_ref.getmembers():
+                        # Skip dangerous members
+                        if member.name.startswith("/") or ".." in member.name:
+                            continue
+                        member_path = (upx_dir / member.name).resolve()
+                        # Ensure extraction stays within target directory
+                        if str(member_path).startswith(str(upx_resolved)):
+                            safe_members.append(member)
+
+                    # Extract only validated members
+                    tar_ref.extractall(upx_dir, members=safe_members, filter="data")
             os.remove(zip_path)
 
             for file in upx_dir.rglob(exe_name):
                 if sys.platform != "win32":
-                    os.chmod(file, 0o755)
+                    # Set more restrictive permissions (owner read/write/execute only)
+                    os.chmod(file, 0o700)
                 self.output.emit("  UPX installed successfully.", "success")
                 return str(file)
         except Exception as e:
@@ -448,7 +515,18 @@ class NuitkaBuildThread(QThread):
                 img = Image.open(source)
                 if img.mode != "RGBA":
                     img = img.convert("RGBA")
-                img.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+                img.save(
+                    ico_path,
+                    format="ICO",
+                    sizes=[
+                        (16, 16),
+                        (32, 32),
+                        (48, 48),
+                        (64, 64),
+                        (128, 128),
+                        (256, 256),
+                    ],
+                )
                 return str(ico_path)
             except Exception as e:
                 self.output.emit(f"  Icon conversion failed: {e}", "warning")
@@ -460,7 +538,9 @@ class NuitkaBuildThread(QThread):
             try:
                 from PIL import Image
 
-                img = Image.open(source).convert("RGBA" if img.mode == "RGBA" else "RGB")
+                img = Image.open(source).convert(
+                    "RGBA" if img.mode == "RGBA" else "RGB"
+                )
                 img.save(png_path, "PNG")
                 return str(png_path)
             except Exception as e:
@@ -472,7 +552,10 @@ class NuitkaBuildThread(QThread):
         if self.process:
             try:
                 if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.process.pid)], capture_output=True)
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        capture_output=True,
+                    )
                 else:
                     os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 time.sleep(0.5)
@@ -508,7 +591,9 @@ class CrucibleWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background-color: {C_BG}; }}")
+        scroll.setStyleSheet(
+            f"QScrollArea {{ border: none; background-color: {C_BG}; }}"
+        )
 
         container = QWidget()
         container.setStyleSheet(f"background-color: {C_BG};")
@@ -552,7 +637,9 @@ class CrucibleWindow(QMainWindow):
         script_card = SectionCard(1, "Choose Your Python Script")
         script_input_layout = QHBoxLayout()
         self.script_edit = QLineEdit()
-        self.script_edit.setPlaceholderText("Drag and drop your .py file here, or click Browse...")
+        self.script_edit.setPlaceholderText(
+            "Drag and drop your .py file here, or click Browse..."
+        )
         self.script_edit.setReadOnly(True)
         self.script_edit.setMinimumHeight(40)
         self.script_edit.setStyleSheet(
@@ -589,7 +676,9 @@ class CrucibleWindow(QMainWindow):
 
         env_browse_btn = QPushButton("...")
         env_browse_btn.setFixedSize(32, 32)
-        env_browse_btn.setToolTip("Leave this as-is if unsure. Only change it if you use Virtual Environments (venv).")
+        env_browse_btn.setToolTip(
+            "Leave this as-is if unsure. Only change it if you use Virtual Environments (venv)."
+        )
         env_browse_btn.setStyleSheet(
             f"QPushButton {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; }}"
         )
@@ -602,7 +691,9 @@ class CrucibleWindow(QMainWindow):
         icon_card = SectionCard(2, "Choose an App Icon (Optional)")
         icon_input_layout = QHBoxLayout()
         self.icon_edit = QLineEdit()
-        self.icon_edit.setPlaceholderText("Drag and drop an image here, or click Browse...")
+        self.icon_edit.setPlaceholderText(
+            "Drag and drop an image here, or click Browse..."
+        )
         self.icon_edit.setReadOnly(True)
         self.icon_edit.setMinimumHeight(40)
         self.icon_edit.setStyleSheet(
@@ -830,10 +921,15 @@ class CrucibleWindow(QMainWindow):
                             spec = f"{potential_path}={clean_val}"
                             if spec not in self.data_files:
                                 self.data_files.append(spec)
-                                self.data_list.addItem(f"[File]  {clean_val} (Auto-scanned)")
+                                self.data_list.addItem(
+                                    f"[File]  {clean_val} (Auto-scanned)"
+                                )
                                 found_files += 1
             if found_files > 0:
-                self.log(f"  ✨ Auto-Scan found {found_files} missing data file(s)!", "success")
+                self.log(
+                    f"  ✨ Auto-Scan found {found_files} missing data file(s)!",
+                    "success",
+                )
             else:
                 self.log("  Auto-Scan finished. No new data files found.", "info")
         except SyntaxError:
@@ -852,10 +948,14 @@ def get_resource_path(filename):
     return base_path / filename
 """
         QApplication.clipboard().setText(snippet)
-        QMessageBox.information(self, "Code Copied!", "Paste this at the top of your script.")
+        QMessageBox.information(
+            self, "Code Copied!", "Paste this at the top of your script."
+        )
 
     def save_profile(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Build Profile", "", "Crucible Profile (*.crucible)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Build Profile", "", "Crucible Profile (*.crucible)"
+        )
         if not path:
             return
         profile = {
@@ -881,7 +981,9 @@ def get_resource_path(filename):
         self.log(f"  Profile saved to {path}", "success")
 
     def load_profile(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Build Profile", "", "Crucible Profile (*.crucible)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Build Profile", "", "Crucible Profile (*.crucible)"
+        )
         if not path:
             return
         with open(path, "r") as f:
@@ -913,7 +1015,10 @@ def get_resource_path(filename):
     def check_and_install_nuitka(self):
         try:
             subprocess.run(
-                [self.env_edit.text(), "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=15
+                [self.env_edit.text(), "-m", "nuitka", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             return True
         except Exception:
@@ -927,7 +1032,9 @@ def get_resource_path(filename):
         )
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                subprocess.run([self.env_edit.text(), "-m", "pip", "install", "nuitka"], check=True)
+                subprocess.run(
+                    [self.env_edit.text(), "-m", "pip", "install", "nuitka"], check=True
+                )
                 return True
             except Exception:
                 return False
@@ -935,7 +1042,10 @@ def get_resource_path(filename):
 
     def browse_env(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select python.exe", "", "python.exe" if sys.platform == "win32" else "All Files (*)"
+            self,
+            "Select python.exe",
+            "",
+            "python.exe" if sys.platform == "win32" else "All Files (*)",
         )
         if path:
             self.env_edit.setText(path)
@@ -966,28 +1076,34 @@ def get_resource_path(filename):
                 self.data_dirs.pop(row)
 
     def script_drag_enter(self, event):
-        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().endswith(".py"):
+        if event.mimeData().hasUrls() and event.mimeData().urls()[
+            0
+        ].toLocalFile().endswith(".py"):
             event.acceptProposedAction()
 
     def script_drop(self, event):
         self.set_script_path(event.mimeData().urls()[0].toLocalFile())
 
     def icon_drag_enter(self, event):
-        if event.mimeData().hasUrls() and event.mimeData().urls()[0].toLocalFile().lower().endswith(
-            (".png", ".jpg", ".jpeg", ".ico")
-        ):
+        if event.mimeData().hasUrls() and event.mimeData().urls()[
+            0
+        ].toLocalFile().lower().endswith((".png", ".jpg", ".jpeg", ".ico")):
             event.acceptProposedAction()
 
     def icon_drop(self, event):
         self.set_icon_path(event.mimeData().urls()[0].toLocalFile())
 
     def browse_script(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose Your Python Script", "", "Python (*.py)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose Your Python Script", "", "Python (*.py)"
+        )
         if path:
             self.set_script_path(path)
 
     def browse_icon(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose an App Icon", "", "Images (*.png *.jpg *.jpeg *.ico)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose an App Icon", "", "Images (*.png *.jpg *.jpeg *.ico)"
+        )
         if path:
             self.set_icon_path(path)
 
@@ -1052,7 +1168,11 @@ def get_resource_path(filename):
         self.build_btn.clicked.connect(self.cancel_build)
 
         self.build_thread = NuitkaBuildThread(
-            self.script_path, str(Path(self.script_path).parent), self.env_edit.text(), self.icon_path, options
+            self.script_path,
+            str(Path(self.script_path).parent),
+            self.env_edit.text(),
+            self.icon_path,
+            options,
         )
         self.build_thread.output.connect(self.log)
         self.build_thread.progress.connect(self.progress.setValue)
@@ -1080,8 +1200,12 @@ def get_resource_path(filename):
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Success!")
                 msg_box.setText(f"Your app was built successfully!\n{message}")
-                open_btn = msg_box.addButton("Open Folder", QMessageBox.ButtonRole.AcceptRole)
-                test_btn = msg_box.addButton("Test App Now", QMessageBox.ButtonRole.AcceptRole)
+                open_btn = msg_box.addButton(
+                    "Open Folder", QMessageBox.ButtonRole.AcceptRole
+                )
+                test_btn = msg_box.addButton(
+                    "Test App Now", QMessageBox.ButtonRole.AcceptRole
+                )
                 msg_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
                 msg_box.exec()
 
@@ -1117,7 +1241,13 @@ def get_resource_path(filename):
             subprocess.Popen(["xdg-open", folder])
 
     def log(self, message, level="info"):
-        colors = {"info": C_WHITE, "dim": C_GRAY, "success": C_SUCCESS, "warning": "#ffaa00", "error": C_ERROR}
+        colors = {
+            "info": C_WHITE,
+            "dim": C_GRAY,
+            "success": C_SUCCESS,
+            "warning": "#ffaa00",
+            "error": C_ERROR,
+        }
         self.log_output.append_colored(message, colors.get(level, C_WHITE))
 
     def setup_menubar(self):
@@ -1159,7 +1289,10 @@ def get_resource_path(filename):
             self.restoreGeometry(geometry)
         else:
             screen = QApplication.primaryScreen().geometry()
-            self.move((screen.width() - self.width()) // 2, (screen.height() - self.height()) // 2)
+            self.move(
+                (screen.width() - self.width()) // 2,
+                (screen.height() - self.height()) // 2,
+            )
 
     def closeEvent(self, event):
         if self.build_thread and self.build_thread.isRunning():

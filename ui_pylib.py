@@ -166,7 +166,10 @@ class PipListWorker(QThread):
     def run(self):
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "list", "--format=json"], capture_output=True, text=True, timeout=60
+                [sys.executable, "-m", "pip", "list", "--format=json"],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if result.returncode == 0:
                 packages = json.loads(result.stdout)
@@ -193,10 +196,22 @@ class PipInstallWorker(QThread):
         self._stop = True
 
     def run(self):
-        cmd = [sys.executable, "-m", "pip", "install", *self.packages, "--disable-pip-version-check"]
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            *self.packages,
+            "--disable-pip-version-check",
+        ]
         try:
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
             )
             for line in process.stdout:
                 if self._stop:
@@ -210,7 +225,9 @@ class PipInstallWorker(QThread):
             elif process.returncode == 0:
                 self.finished_install.emit(True, "Installation complete.")
             else:
-                self.finished_install.emit(False, f"Installation failed with code {process.returncode}.")
+                self.finished_install.emit(
+                    False, f"Installation failed with code {process.returncode}."
+                )
         except Exception as e:
             self.finished_install.emit(False, str(e))
 
@@ -271,8 +288,12 @@ class PyLibWindow(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Package", "Status", "Version"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.tree.header().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(True)
         self.tree.setStyleSheet(f"""
@@ -327,7 +348,11 @@ class PyLibWindow(QMainWindow):
             cat_item = QTreeWidgetItem(self.tree)
             cat_item.setText(0, category)
             cat_item.setFont(0, QFont("Segoe UI", 12, QFont.Weight.Bold))
-            cat_item.setFlags(cat_item.flags() | Qt.ItemFlag.ItemIsTristate | Qt.ItemFlag.ItemIsUserCheckable)
+            cat_item.setFlags(
+                cat_item.flags()
+                | Qt.ItemFlag.ItemIsTristate
+                | Qt.ItemFlag.ItemIsUserCheckable
+            )
             cat_item.setCheckState(0, Qt.CheckState.Unchecked)
 
             for pkg_name, pkg_ver in packages:
@@ -349,8 +374,12 @@ class PyLibWindow(QMainWindow):
 
         self.tree.expandAll()
         self.btn_refresh.setEnabled(True)
-        self.status_lbl.setText(f"Scan complete. {len(self.installed_packages)} packages found in environment.")
-        self._log(f"Scan complete. Found {len(self.installed_packages)} installed packages.")
+        self.status_lbl.setText(
+            f"Scan complete. {len(self.installed_packages)} packages found in environment."
+        )
+        self._log(
+            f"Scan complete. Found {len(self.installed_packages)} installed packages."
+        )
 
     def _on_scan_error(self, err: str):
         self.btn_refresh.setEnabled(True)
@@ -370,7 +399,9 @@ class PyLibWindow(QMainWindow):
     def _install_selected(self):
         packages = self._get_selected_packages()
         if not packages:
-            QMessageBox.information(self, "No Selection", "Please select at least one package to install.")
+            QMessageBox.information(
+                self, "No Selection", "Please select at least one package to install."
+            )
             return
 
         reply = QMessageBox.question(
@@ -409,7 +440,9 @@ class PyLibWindow(QMainWindow):
         self._log(msg)
 
         if success:
-            QMessageBox.information(self, "Success", "Packages installed successfully. Refreshing list...")
+            QMessageBox.information(
+                self, "Success", "Packages installed successfully. Refreshing list..."
+            )
             self._refresh_packages()
         else:
             QMessageBox.warning(self, "Installation Failed", msg)

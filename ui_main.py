@@ -91,7 +91,9 @@ class ChatWorker(QThread):
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
 
-    def __init__(self, swarm: AgentSwarm, message: str, history: list, context: str = ""):
+    def __init__(
+        self, swarm: AgentSwarm, message: str, history: list, context: str = ""
+    ):
         super().__init__()
         self.swarm = swarm
         self.message = message
@@ -104,7 +106,9 @@ class ChatWorker(QThread):
         try:
 
             async def process():
-                async for event in self.swarm.run_main_agent(self.message, self.history, rag_context=self.context):
+                async for event in self.swarm.run_main_agent(
+                    self.message, self.history, rag_context=self.context
+                ):
                     try:
                         data = json.loads(event)
                         if data["type"] == "stream":
@@ -154,7 +158,7 @@ class LintWorker(QThread):
                 if not self._is_running:
                     return
                 batch = files[i : i + self.batch_size]
-                self.progress.emit(f"Parsing batch {i//self.batch_size + 1}...")
+                self.progress.emit(f"Parsing batch {i // self.batch_size + 1}...")
 
                 # Mock AST analysis for skeleton (replace with engine.ast_pass)
                 issues = []
@@ -275,7 +279,9 @@ class ChatPanel(QWidget):
 
         self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
-        self.display.setStyleSheet(f"background: #050505; color: {C_WHITE}; border: none; font-family: Consolas;")
+        self.display.setStyleSheet(
+            f"background: #050505; color: {C_WHITE}; border: none; font-family: Consolas;"
+        )
         layout.addWidget(self.display, 1)
 
         input_layout = QHBoxLayout()
@@ -384,8 +390,12 @@ class LintPanel(QWidget):
         layout.addWidget(header)
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Severity", "Code", "File", "Line", "Message"])
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.table.setHorizontalHeaderLabels(
+            ["Severity", "Code", "File", "Line", "Message"]
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.Stretch
+        )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
@@ -424,7 +434,9 @@ class LintPanel(QWidget):
     def _push_to_ai(self):
         if not self.all_issues:
             return
-        critical = [i for i in self.all_issues if i["severity"] in ("HIGH", "CRITICAL")][:20]
+        critical = [
+            i for i in self.all_issues if i["severity"] in ("HIGH", "CRITICAL")
+        ][:20]
         if not critical:
             critical = self.all_issues[:20]
         prompt = "Forensic lint results:\n\n"
@@ -502,7 +514,9 @@ class RefactoryMainWindow(QMainWindow):
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction("Open Project...", self._open_project, QKeySequence("Ctrl+O"))
+        file_menu.addAction(
+            "Open Project...", self._open_project, QKeySequence("Ctrl+O")
+        )
         file_menu.addAction("Save", self._save_file, QKeySequence("Ctrl+S"))
         file_menu.addSeparator()
         file_menu.addAction("Exit", self.close, QKeySequence("Ctrl+Q"))
@@ -529,7 +543,9 @@ class RefactoryMainWindow(QMainWindow):
         if path:
             self.current_project = Path(path)
             self.file_model.setRootPath(str(self.current_project))
-            self.file_tree.setRootIndex(self.file_model.index(str(self.current_project)))
+            self.file_tree.setRootIndex(
+                self.file_model.index(str(self.current_project))
+            )
             self.status_bar.showMessage(f"Project loaded: {path}")
 
     def _open_file(self, index):
@@ -550,7 +566,11 @@ class RefactoryMainWindow(QMainWindow):
             QProcess.startDetached(sys.executable, [str(script_path)])
             self.status_bar.showMessage(f"Launched: {script_name}")
         else:
-            QMessageBox.warning(self, "Deck Missing", f"Could not find {script_name} in the project root.")
+            QMessageBox.warning(
+                self,
+                "Deck Missing",
+                f"Could not find {script_name} in the project root.",
+            )
 
     def _push_lint_to_chat(self, prompt):
         self.chat_panel.input.setText(prompt)
