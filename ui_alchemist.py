@@ -7,14 +7,13 @@ Features auto-provisioning of external tools (FFmpeg, Tesseract),
 multi-threaded batch processing, and a Potato PC optimized UI.
 """
 
-from typing import ClassVar
-
 import shutil
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QPalette

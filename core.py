@@ -57,7 +57,7 @@ class StoreError(LintStackError):
     """SQLite store operation failure."""
 
 
-class StoreCorrupt(StoreError):
+class StoreCorruptError(StoreError):
     """SQLite database corruption detected."""
 
     exit_code = EXIT_DEGRADED
@@ -67,13 +67,13 @@ class AtomicWriteError(LintStackError):
     """Atomic file write failure."""
 
 
-class LockBusy(LintStackError):
+class LockBusyError(LintStackError):
     """Advisory file lock acquisition failure."""
 
     exit_code = EXIT_DEGRADED
 
 
-class RepairFailed(LintStackError):
+class RepairFailedError(LintStackError):
     """Store repair operation failure."""
 
     exit_code = EXIT_DEGRADED
@@ -352,15 +352,11 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
         raise AtomicWriteError(f"atomic_write({destination}): {e}") from e
     finally:
         if fd != -1:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
         if tmp_path is not None:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 tmp_path.unlink()
-            except FileNotFoundError:
-                pass
 
 
 try:
@@ -398,7 +394,7 @@ class FileLock:
                 if e.errno not in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
                     raise
                 if time.monotonic() >= deadline:
-                    raise LockBusy(f"lock held elsewhere: {self.path}") from e
+                    raise LockBusyError(f"lock held elsewhere: {self.path}") from e
                 time.sleep(0.05)
 
     def release(self) -> None:
@@ -721,10 +717,8 @@ class Governor:
         old = self._level
         self._level = new
         if self.recorder:
-            try:
+            with contextlib.suppress(Exception):
                 self.recorder(old, new, reason)
-            except Exception:
-                pass
 
     def _enter_pause(self, reason: str) -> None:
         if self._in_pause:

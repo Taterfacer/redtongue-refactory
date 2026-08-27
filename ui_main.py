@@ -164,7 +164,7 @@ class LintWorker(QThread):
                 issues = []
                 for f in batch:
                     try:
-                        with open(f, "r", encoding="utf-8") as fh:
+                        with open(f, encoding="utf-8") as fh:
                             content = fh.read()
                         if "import *" in content:
                             issues.append(

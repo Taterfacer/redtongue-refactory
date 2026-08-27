@@ -35,11 +35,11 @@ class LintStackError(Exception):
     exit_code: int = 2
 
 
-class BootstrapFailure(LintStackError):
+class BootstrapError(LintStackError):
     """Raised when the engine cannot bootstrap its environment."""
 
 
-class EngineUnavailable(LintStackError):
+class EngineUnavailableError(LintStackError):
     """Raised when a required engine component is missing."""
 
 

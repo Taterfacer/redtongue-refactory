@@ -95,7 +95,7 @@ def load_json(path: Path, default: Any = None) -> Any:
         default = {}
     if path.exists():
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass

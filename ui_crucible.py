@@ -906,7 +906,7 @@ class CrucibleWindow(QMainWindow):
         script_dir = Path(self.script_path).parent
         found_files = 0
         try:
-            with open(self.script_path, "r", encoding="utf-8") as f:
+            with open(self.script_path, encoding="utf-8") as f:
                 file_content = f.read()
             tree = ast.parse(file_content)
             for node in ast.walk(tree):
@@ -986,7 +986,7 @@ def get_resource_path(filename):
         )
         if not path:
             return
-        with open(path, "r") as f:
+        with open(path) as f:
             profile = json.load(f)
         if profile.get("script"):
             self.set_script_path(profile["script"])
@@ -1161,10 +1161,8 @@ def get_resource_path(filename):
         self.build_btn.setText("  BUILDING... (Click to Cancel)  ")
         self.progress.setValue(0)
 
-        try:
+        with contextlib.suppress(TypeError):
             self.build_btn.clicked.disconnect()
-        except TypeError:
-            pass
         self.build_btn.clicked.connect(self.cancel_build)
 
         self.build_thread = NuitkaBuildThread(
@@ -1186,10 +1184,8 @@ def get_resource_path(filename):
     def build_finished(self, success, message, exe_path):
         self.build_btn.setEnabled(True)
         self.build_btn.setText("  BUILD MY APP NOW  ")
-        try:
+        with contextlib.suppress(TypeError):
             self.build_btn.clicked.disconnect()
-        except TypeError:
-            pass
         self.build_btn.clicked.connect(self.start_build)
 
         if success:

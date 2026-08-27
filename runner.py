@@ -74,26 +74,20 @@ def kill_process_tree(pid: int, timeout: float = 3.0) -> bool:
 
         # Terminate children first
         for child in children:
-            try:
+            with contextlib.suppress(psutil.NoSuchProcess):
                 child.terminate()
-            except psutil.NoSuchProcess:
-                pass
 
         # Terminate parent
-        try:
+        with contextlib.suppress(psutil.NoSuchProcess):
             parent.terminate()
-        except psutil.NoSuchProcess:
-            pass
 
         # Wait for graceful shutdown
         gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
 
         # Force kill survivors
         for p in alive:
-            try:
+            with contextlib.suppress(psutil.NoSuchProcess):
                 p.kill()
-            except psutil.NoSuchProcess:
-                pass
 
         return True
     except Exception as e:
@@ -252,7 +246,5 @@ class SandboxRunner:
 
             return self.execute(tmp_path)
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass

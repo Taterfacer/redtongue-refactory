@@ -72,7 +72,7 @@ class DataManager:
     def _load(self) -> dict[str, Any]:
         if DATA_FILE.exists():
             try:
-                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                with open(DATA_FILE, encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 pass
@@ -82,7 +82,7 @@ class DataManager:
             backup = DATA_FILE.with_suffix(f".json.bak{i}")
             if backup.exists():
                 try:
-                    with open(backup, "r", encoding="utf-8") as f:
+                    with open(backup, encoding="utf-8") as f:
                         return json.load(f)
                 except Exception:
                     continue
