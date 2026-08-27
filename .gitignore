@@ -1,31 +1,39 @@
 ```
-# Compiled Python files
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Compiled and build artifacts
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
+
+# Dependencies
+.venv/
+venv/
+.env
+.env.local
+*.env.*
 
 # Logs and temp files
 *.log
 *.tmp
 *.swp
 
-# Environment
-.env
-.env.local
-*.env.*
-
 # Editors
 .vscode/
 .idea/
 
-# Dependencies
-.venv/
-venv/
-node_modules/
-
-# Build artifacts
+# Distribution / packaging
 dist/
 build/
-target/
+*.tar.gz
+*.whl
+*.egg-info/
 ```

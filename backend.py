@@ -333,7 +333,9 @@ class DiagnosticBrain:
         model_path = self.models_dir / self.MODEL_NAME
         if model_path.exists() and model_path.stat().st_size > 10_000_000:
             self._download_status = "ready"
-            self._load_model()
+            if not self._load_model():
+                self._download_status = "failed"
+                return False
             return True
 
         self._download_status = "downloading"
@@ -355,7 +357,9 @@ class DiagnosticBrain:
                                     progress_callback(self._download_progress)
             tmp_path.replace(model_path)
             self._download_status = "ready"
-            self._load_model()
+            if not self._load_model():
+                self._download_status = "failed"
+                return False
             return True
         except requests.RequestException as e:
             logger.error("SmolLM download failed: %s", e)
@@ -366,16 +370,16 @@ class DiagnosticBrain:
             self._download_status = "failed"
             return False
 
-    def _load_model(self) -> None:
+    def _load_model(self) -> bool:
         with self._lock:
             if self.session:
-                return
+                return True
             model_path = self.models_dir / self.MODEL_NAME
             if not model_path.exists():
-                return
+                return False
             if not HAS_ONNX or ort is None:
                 logger.warning("DiagnosticBrain unavailable: onnxruntime not installed")
-                return
+                return False
             try:
                 providers: list[str] = ["CPUExecutionProvider"]
                 if (
@@ -387,8 +391,10 @@ class DiagnosticBrain:
                     str(model_path), providers=providers
                 )
                 logger.info("DiagnosticBrain loaded via %s", providers[0])
+                return True
             except ort.OrtException as e:
                 logger.warning("DiagnosticBrain failed to load ONNX session: %s", e)
+                return False
 
     def compress_diagnostics(self, raw_data: str) -> str:
         if not self.session:
