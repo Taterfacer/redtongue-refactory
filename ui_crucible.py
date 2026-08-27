@@ -5,27 +5,42 @@ RedTongue Crucible - Native PyQt6 Compiler Deck.
 Compiles Python scripts into standalone executables via Nuitka.
 English-only, optimized for low-RAM environments.
 """
-import sys
+import ast
+import json
 import os
+import signal
 import subprocess
+import sys
 import tempfile
 import time
-import signal
 import urllib.request
 import zipfile
-import json
-import ast
 from pathlib import Path
 
+from PyQt6.QtCore import QByteArray, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QIcon, QPalette, QPixmap, QTextCursor
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QLineEdit, QTextEdit, QFileDialog, 
-    QProgressBar, QMessageBox, QCheckBox, QSpinBox, QScrollArea, 
-    QFrame, QSystemTrayIcon, QMenu, QListWidget, QGridLayout, 
-    QAbstractItemView, QDialogButtonBox, QAction
+    QAbstractItemView,
+    QAction,
+    QApplication,
+    QCheckBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings, QByteArray
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QPalette, QColor, QTextCursor
 
 # =============================================================================
 # THEME & CONSTANTS
@@ -77,7 +92,7 @@ class SectionCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(8)
-        
+
         header_layout = QHBoxLayout()
         num_label = QLabel(str(number))
         num_label.setFixedSize(28, 28)
@@ -85,13 +100,13 @@ class SectionCard(QFrame):
         num_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         num_label.setStyleSheet(f"background-color: {C_RED}; color: {C_WHITE}; border-radius: 14px;")
         header_layout.addWidget(num_label)
-        
+
         title_label = QLabel(title)
         title_label.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         title_label.setStyleSheet(f"color: {C_WHITE};")
         header_layout.addWidget(title_label, 1)
         layout.addLayout(header_layout)
-        
+
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
@@ -120,16 +135,16 @@ class SmartLogOutput(QTextEdit):
     def append_colored(self, text, color=None, bold=False):
         scrollbar = self.verticalScrollBar()
         at_bottom = scrollbar.value() >= scrollbar.maximum() - 20
-        
+
         cursor = self.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        
+
         fmt = cursor.charFormat()
         fmt.setForeground(QColor(color if color else C_GRAY))
         fmt.setFontWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
         cursor.setCharFormat(fmt)
         cursor.insertText(text + "\n")
-        
+
         if at_bottom:
             scrollbar.setValue(scrollbar.maximum())
 
@@ -140,9 +155,9 @@ class DataDropList(QListWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.main_window = parent
         self.setStyleSheet(f"""
-            QListWidget {{ 
-                background-color: {C_INPUT}; color: {C_WHITE}; 
-                border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px; 
+            QListWidget {{
+                background-color: {C_INPUT}; color: {C_WHITE};
+                border: 1px solid {C_BORDER}; border-radius: 4px; padding: 4px; font-size: 12px;
             }}
             QListWidget::item:selected {{ background-color: {C_RED}; color: {C_WHITE}; }}
         """)
@@ -190,7 +205,7 @@ class NuitkaBuildThread(QThread):
             self.output.emit("=" * 60, "info")
             self.output.emit("RedTongue Crucible — Starting Build", "info")
             self.output.emit("=" * 60, "info")
-            
+
             self.progress.emit(5, "Checking tools...")
             try:
                 result = subprocess.run([self.python_exe, "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=30)
@@ -204,34 +219,34 @@ class NuitkaBuildThread(QThread):
             self.progress.emit(10, "Preparing icon...")
             prepared_icon = self.prepare_icon() if self.icon_path else None
             if prepared_icon:
-                self.output.emit(f"  Icon prepared.", "success")
+                self.output.emit("  Icon prepared.", "success")
 
             self.progress.emit(15, "Building instructions...")
             cmd = [self.python_exe, "-m", "nuitka", "--standalone", "--onefile"]
-            
+
             if self.options.get("tkinter"): cmd.append("--enable-plugin=tk-inter")
             if self.options.get("pyqt6"): cmd.append("--enable-plugin=pyqt6")
             if self.options.get("lto"): cmd.append("--lto=yes")
             if self.options.get("remove_build"): cmd.append("--remove-output")
-            
+
             jobs = self.options.get("jobs", 0)
             if jobs > 0:
                 cmd.append(f"--jobs={jobs}")
-                
+
             if prepared_icon:
                 flag = "--windows-icon-from-ico" if sys.platform == "win32" else "--linux-icon"
                 cmd.append(f"{flag}={prepared_icon}")
-                
+
             cmd.append(f"--output-dir={self.output_dir}")
-            
+
             for data_spec in self.options.get("data_files", []):
                 cmd.append(f"--include-data-files={data_spec}")
                 self.output.emit(f"  Including file: {data_spec.split('=')[0]}", "info")
-                
+
             for dir_spec in self.options.get("data_dirs", []):
                 cmd.append(f"--include-data-dir={dir_spec}")
                 self.output.emit(f"  Including directory: {dir_spec.split('=')[0]}", "info")
-                
+
             if sys.platform == "win32":
                 if self.options.get("app_name"):
                     cmd.append(f"--windows-product-name={self.options.get('app_name')}")
@@ -241,70 +256,70 @@ class NuitkaBuildThread(QThread):
                     cmd.append(f"--windows-company-name={self.options.get('app_company')}")
                 if self.options.get("run_as_admin"):
                     cmd.append("--windows-uac-admin")
-                    
+
             for pkg in self.options.get("include_packages", []):
                 cmd.append(f"--include-package={pkg}")
                 self.output.emit(f"  Forcing include: {pkg}", "info")
-                
+
             for pkg in self.options.get("exclude_packages", []):
                 cmd.append(f"--nofollow-import-to={pkg}")
                 self.output.emit(f"  Excluding module: {pkg}", "info")
-                
+
             if self.options.get("follow_imports", True): cmd.append("--follow-imports")
             if sys.platform == "win32" and self.options.get("windowed", True): cmd.append("--windows-disable-console")
-            
+
             if self.options.get("upx"):
                 upx_binary = self.ensure_upx()
                 if upx_binary:
                     cmd.append(f"--upx-binary={upx_binary}")
-                    self.output.emit(f"  Using UPX for extra compression.", "success")
+                    self.output.emit("  Using UPX for extra compression.", "success")
                 else:
                     self.output.emit("  Skipping UPX compression.", "warning")
-                    
+
             cmd.append(str(self.script_path))
             self.output.emit(f"  CMD: {' '.join(cmd)}", "dim")
             self.output.emit("-" * 60, "dim")
-            
+
             self.progress.emit(20, "Compiling executable...")
             kwargs = {}
             if sys.platform == "win32":
                 kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
             else:
                 kwargs['start_new_session'] = True
-                
+
             self.process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                text=True, bufsize=1, universal_newlines=True, 
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, universal_newlines=True,
                 cwd=str(self.output_dir), **kwargs
             )
-            
+
             for line in self.process.stdout:
                 if self._kill: break
                 line = line.rstrip()
                 if not line: continue
-                
+
                 lower = line.lower()
                 if "error" in lower or "failed" in lower: level = "error"
                 elif "warning" in lower: level = "warning"
                 elif "success" in lower or "created" in lower: level = "success"
                 else: level = "dim"
-                
+
                 self.output.emit(f"  {line}", level)
-                
+
                 if "%" in line:
                     try:
                         pct = int(line.split("%")[0].strip().split()[-1])
                         self.progress.emit(max(20, min(pct, 95)), "Compiling...")
                     except: pass
-                    
+
             if self._kill:
                 self.output.emit("  BUILD CANCELLED BY USER", "error")
                 self.finished_build.emit(False, "Build cancelled", "")
                 return
-                
+
             self.process.wait()
             self.progress.emit(95, "Finalizing...")
-            
+
             if self.process.returncode == 0:
                 exe_name = self.script_path.stem + (".exe" if sys.platform == "win32" else "")
                 found_exe = self.output_dir / exe_name
@@ -319,35 +334,35 @@ class NuitkaBuildThread(QThread):
                 self.output.emit(f"  ✗ BUILD FAILED (code {self.process.returncode})", "error")
                 self.progress.emit(0, "Failed")
                 self.finished_build.emit(False, f"Nuitka exited with code {self.process.returncode}", "")
-                
+
         except Exception as e:
-            self.output.emit(f"  CRITICAL ERROR: {str(e)}", "error")
+            self.output.emit(f"  CRITICAL ERROR: {e!s}", "error")
             self.finished_build.emit(False, str(e), "")
 
     def ensure_upx(self):
         upx_dir = Path.home() / ".redtongue_crucible" / "upx"
         upx_dir.mkdir(parents=True, exist_ok=True)
         exe_name = "upx.exe" if sys.platform == "win32" else "upx"
-        
+
         for file in upx_dir.rglob(exe_name):
             return str(file)
-            
+
         self.output.emit("  UPX requested. Downloading automatically...", "info")
         self.progress.emit(12, "Downloading UPX...")
-        
+
         if sys.platform == "win32":
             url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
         elif sys.platform == "darwin":
             url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-darwin-amd64.tar.xz"
         else:
             url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz"
-            
+
         zip_path = upx_dir / "upx_download.zip"
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'RedTongue Crucible'})
             with urllib.request.urlopen(req) as response, open(zip_path, 'wb') as out_file:
                 out_file.write(response.read())
-                
+
             self.output.emit("  Extracting UPX...", "info")
             if url.endswith(".zip"):
                 with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -357,7 +372,7 @@ class NuitkaBuildThread(QThread):
                 with tarfile.open(zip_path, 'r:xz') as tar_ref:
                     tar_ref.extractall(upx_dir)
             os.remove(zip_path)
-            
+
             for file in upx_dir.rglob(exe_name):
                 if sys.platform != "win32": os.chmod(file, 0o755)
                 self.output.emit("  UPX installed successfully.", "success")
@@ -370,10 +385,10 @@ class NuitkaBuildThread(QThread):
         if not self.icon_path: return None
         source = Path(self.icon_path)
         if not source.exists(): return None
-        
+
         temp_dir = Path(tempfile.gettempdir()) / "redtongue_icons"
         temp_dir.mkdir(exist_ok=True)
-        
+
         if sys.platform == "win32":
             if source.suffix.lower() == '.ico': return str(source)
             ico_path = temp_dir / f"{source.stem}_converted.ico"
@@ -421,14 +436,14 @@ class CrucibleWindow(QMainWindow):
         self.settings = QSettings("RedTongue", "Crucible")
         self.setWindowTitle("RedTongue Crucible")
         self.setMinimumSize(1000, 1050)
-        
+
         self.script_path = None
         self.icon_path = None
         self.build_thread = None
         self._last_exe_path = None
         self.data_files = []
         self.data_dirs = []
-        
+
         self.setup_ui()
         self.setup_menubar()
         self.apply_theme()
@@ -439,16 +454,16 @@ class CrucibleWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(f"QScrollArea {{ border: none; background-color: {C_BG}; }}")
-        
+
         container = QWidget()
         container.setStyleSheet(f"background-color: {C_BG};")
         scroll.setWidget(container)
         self.setCentralWidget(scroll)
-        
+
         main_layout = QVBoxLayout(container)
         main_layout.setSpacing(16)
         main_layout.setContentsMargins(24, 24, 24, 24)
-        
+
         # Header
         header = QHBoxLayout()
         header.setSpacing(16)
@@ -456,7 +471,7 @@ class CrucibleWindow(QMainWindow):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_label.setPixmap(load_redtongue_logo(120))
         header.addWidget(logo_label)
-        
+
         title_layout = QVBoxLayout()
         title_layout.setSpacing(4)
         title_layout.addStretch()
@@ -471,13 +486,13 @@ class CrucibleWindow(QMainWindow):
         title_layout.addStretch()
         header.addLayout(title_layout, 1)
         main_layout.addLayout(header)
-        
+
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFixedHeight(1)
         sep.setStyleSheet(f"background-color: {C_BORDER}; border: none;")
         main_layout.addWidget(sep)
-        
+
         # 1. Script & Environment
         script_card = SectionCard(1, "Choose Your Python Script")
         script_input_layout = QHBoxLayout()
@@ -491,26 +506,26 @@ class CrucibleWindow(QMainWindow):
         self.script_edit.dragEnterEvent = self.script_drag_enter
         self.script_edit.dropEvent = self.script_drop
         script_input_layout.addWidget(self.script_edit, 1)
-        
+
         browse_btn = QPushButton("Browse")
         browse_btn.setMinimumHeight(40)
         browse_btn.setStyleSheet(f"QPushButton {{ background-color: {C_RED}; color: {C_WHITE}; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_RED_HOVER}; }}")
         browse_btn.clicked.connect(self.browse_script)
         script_input_layout.addWidget(browse_btn)
         script_card.addLayout(script_input_layout)
-        
+
         env_layout = QHBoxLayout()
         env_label = QLabel("Python Environment:")
         env_label.setFont(QFont("Segoe UI", 12))
         env_label.setStyleSheet(f"color: {C_GRAY};")
         env_layout.addWidget(env_label)
-        
+
         self.env_edit = QLineEdit()
         self.env_edit.setText(sys.executable)
         self.env_edit.setMinimumHeight(32)
         self.env_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}")
         env_layout.addWidget(self.env_edit, 1)
-        
+
         env_browse_btn = QPushButton("...")
         env_browse_btn.setFixedSize(32, 32)
         env_browse_btn.setToolTip("Leave this as-is if unsure. Only change it if you use Virtual Environments (venv).")
@@ -519,7 +534,7 @@ class CrucibleWindow(QMainWindow):
         env_layout.addWidget(env_browse_btn)
         script_card.addLayout(env_layout)
         main_layout.addWidget(script_card)
-        
+
         # 2. Icon
         icon_card = SectionCard(2, "Choose an App Icon (Optional)")
         icon_input_layout = QHBoxLayout()
@@ -533,7 +548,7 @@ class CrucibleWindow(QMainWindow):
         self.icon_edit.dragEnterEvent = self.icon_drag_enter
         self.icon_edit.dropEvent = self.icon_drop
         icon_input_layout.addWidget(self.icon_edit, 1)
-        
+
         icon_browse_btn = QPushButton("Browse")
         icon_browse_btn.setMinimumHeight(40)
         icon_browse_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 8px 16px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
@@ -541,39 +556,39 @@ class CrucibleWindow(QMainWindow):
         icon_input_layout.addWidget(icon_browse_btn)
         icon_card.addLayout(icon_input_layout)
         main_layout.addWidget(icon_card)
-        
+
         # 3. Data Files & Folders
         data_card = SectionCard(3, "Include Extra Files & Folders (Optional)")
         data_layout = QHBoxLayout()
         self.data_list = DataDropList(self)
         self.data_list.setMinimumHeight(100)
         data_layout.addWidget(self.data_list, 1)
-        
+
         data_btn_layout = QVBoxLayout()
         auto_scan_btn = QPushButton("✨ Auto-Scan Script")
         auto_scan_btn.setMinimumHeight(32)
         auto_scan_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: #4DA6FF; border: 1px solid #4DA6FF; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: #4DA6FF; color: black; }}")
         auto_scan_btn.clicked.connect(self.auto_scan_for_files)
         data_btn_layout.addWidget(auto_scan_btn)
-        
+
         add_data_btn = QPushButton("Add File")
         add_data_btn.setMinimumHeight(32)
         add_data_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
         add_data_btn.clicked.connect(lambda: self.add_data_file())
         data_btn_layout.addWidget(add_data_btn)
-        
+
         add_dir_btn = QPushButton("Add Folder")
         add_dir_btn.setMinimumHeight(32)
         add_dir_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_RED}; color: {C_WHITE}; }}")
         add_dir_btn.clicked.connect(lambda: self.add_data_dir())
         data_btn_layout.addWidget(add_dir_btn)
-        
+
         rm_data_btn = QPushButton("Remove")
         rm_data_btn.setMinimumHeight(32)
         rm_data_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_GRAY}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ border-color: {C_ERROR}; color: {C_WHITE}; }}")
         rm_data_btn.clicked.connect(self.remove_data_item)
         data_btn_layout.addWidget(rm_data_btn)
-        
+
         copy_code_btn = QPushButton("Copy Helper Code")
         copy_code_btn.setMinimumHeight(32)
         copy_code_btn.setStyleSheet(f"QPushButton {{ background-color: {C_INPUT}; color: {C_SUCCESS}; border: 1px solid {C_SUCCESS}; border-radius: 4px; padding: 6px; font-weight: bold; }} QPushButton:hover {{ background-color: {C_SUCCESS}; color: black; }}")
@@ -583,7 +598,7 @@ class CrucibleWindow(QMainWindow):
         data_layout.addLayout(data_btn_layout)
         data_card.addLayout(data_layout)
         main_layout.addWidget(data_card)
-        
+
         # 4. App Details & Advanced Modules
         meta_card = SectionCard(4, "App Details (Optional)")
         meta_layout = QGridLayout()
@@ -595,28 +610,28 @@ class CrucibleWindow(QMainWindow):
         self.app_name_edit.setMinimumHeight(32)
         self.app_name_edit.setStyleSheet(f"QLineEdit {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px; font-size: 12px; }}")
         meta_layout.addWidget(self.app_name_edit, 0, 1)
-        
+
         meta_layout.addWidget(QLabel("Version:"), 0, 2)
         self.app_version_edit = QLineEdit()
         self.app_version_edit.setPlaceholderText("e.g., 1.0.0")
         self.app_version_edit.setMinimumHeight(32)
         self.app_version_edit.setStyleSheet(self.app_name_edit.styleSheet())
         meta_layout.addWidget(self.app_version_edit, 0, 3)
-        
+
         meta_layout.addWidget(QLabel("Company:"), 1, 0)
         self.app_company_edit = QLineEdit()
         self.app_company_edit.setPlaceholderText("e.g., RedTongue")
         self.app_company_edit.setMinimumHeight(32)
         self.app_company_edit.setStyleSheet(self.app_name_edit.styleSheet())
         meta_layout.addWidget(self.app_company_edit, 1, 1)
-        
+
         meta_layout.addWidget(QLabel("Force Include:"), 1, 2)
         self.include_pkg_edit = QLineEdit()
         self.include_pkg_edit.setPlaceholderText("uvicorn, dotenv")
         self.include_pkg_edit.setMinimumHeight(32)
         self.include_pkg_edit.setStyleSheet(self.app_name_edit.styleSheet())
         meta_layout.addWidget(self.include_pkg_edit, 1, 3)
-        
+
         meta_layout.addWidget(QLabel("Exclude:"), 2, 0)
         self.exclude_pkg_edit = QLineEdit()
         self.exclude_pkg_edit.setPlaceholderText("tkinter, unittest, pydoc")
@@ -625,7 +640,7 @@ class CrucibleWindow(QMainWindow):
         meta_layout.addWidget(self.exclude_pkg_edit, 2, 1)
         meta_card.addLayout(meta_layout)
         main_layout.addWidget(meta_card)
-        
+
         # 5. Build Options
         options_card = SectionCard(5, "App Settings")
         adv_layout = QVBoxLayout()
@@ -633,35 +648,35 @@ class CrucibleWindow(QMainWindow):
         self.pyqt_check.setFont(QFont("Segoe UI", 12))
         self.pyqt_check.setStyleSheet(f"QCheckBox {{ color: {C_WHITE}; spacing: 8px; padding: 4px; }} QCheckBox::indicator {{ width: 18px; height: 18px; border: 1px solid {C_BORDER}; border-radius: 3px; background: {C_INPUT}; }} QCheckBox::indicator:checked {{ background: {C_RED}; border-color: {C_RED}; }}")
         adv_layout.addWidget(self.pyqt_check)
-        
+
         self.tk_check = QCheckBox("My app uses Tkinter")
         self.tk_check.setFont(QFont("Segoe UI", 12))
         self.tk_check.setStyleSheet(self.pyqt_check.styleSheet())
         adv_layout.addWidget(self.tk_check)
-        
+
         self.lto_check = QCheckBox("Make App Smaller & Faster (Takes longer to build)")
         self.lto_check.setChecked(True)
         self.lto_check.setFont(QFont("Segoe UI", 12))
         self.lto_check.setStyleSheet(self.pyqt_check.styleSheet())
         adv_layout.addWidget(self.lto_check)
-        
+
         self.upx_check = QCheckBox("Compress App Extra Small (Auto-downloads UPX)")
         self.upx_check.setFont(QFont("Segoe UI", 12))
         self.upx_check.setStyleSheet(self.pyqt_check.styleSheet())
         adv_layout.addWidget(self.upx_check)
-        
+
         self.admin_check = QCheckBox("Run App as Administrator (Requires UAC prompt)")
         self.admin_check.setFont(QFont("Segoe UI", 12))
         self.admin_check.setStyleSheet(self.pyqt_check.styleSheet())
         adv_layout.addWidget(self.admin_check)
         options_card.addLayout(adv_layout)
-        
+
         sys_layout = QHBoxLayout()
         sys_label = QLabel("Build Speed (CPU Cores):")
         sys_label.setFont(QFont("Segoe UI", 12))
         sys_label.setStyleSheet(f"color: {C_GRAY};")
         sys_layout.addWidget(sys_label)
-        
+
         self.threads_spin = QSpinBox()
         self.threads_spin.setMinimum(0)
         self.threads_spin.setMaximum(64)
@@ -672,7 +687,7 @@ class CrucibleWindow(QMainWindow):
         sys_layout.addStretch()
         options_card.addLayout(sys_layout)
         main_layout.addWidget(options_card)
-        
+
         # Build Button
         self.build_btn = QPushButton("  BUILD MY APP NOW  ")
         self.build_btn.setMinimumHeight(50)
@@ -686,7 +701,7 @@ class CrucibleWindow(QMainWindow):
         """)
         self.build_btn.clicked.connect(self.start_build)
         main_layout.addWidget(self.build_btn)
-        
+
         self.progress = QProgressBar()
         self.progress.setMinimumHeight(24)
         self.progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -695,21 +710,21 @@ class CrucibleWindow(QMainWindow):
             QProgressBar::chunk {{ background-color: {C_RED}; border-radius: 4px; }}
         """)
         main_layout.addWidget(self.progress)
-        
+
         # Log
         log_card = SectionCard(6, "Build Log (What's happening behind the scenes)")
         self.log_output = SmartLogOutput()
         self.log_output.setMinimumHeight(150)
         log_card.addWidget(self.log_output)
         main_layout.addWidget(log_card, 1)
-        
+
         self.log("RedTongue Crucible is ready.", "info")
 
     def auto_scan_for_files(self):
         if not self.script_path:
             QMessageBox.warning(self, "Hold On!", "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.")
             return
-            
+
         script_dir = Path(self.script_path).parent
         found_files = 0
         try:
@@ -795,7 +810,7 @@ def get_resource_path(filename):
             subprocess.run([self.env_edit.text(), "-m", "nuitka", "--version"], capture_output=True, text=True, timeout=15)
             return True
         except Exception: pass
-        
+
         reply = QMessageBox.question(self, "Missing Tool", "Nuitka (the engine that compiles your app) is not installed in the selected Python environment. Would you like Crucible to install it for you automatically?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             try:
@@ -852,7 +867,7 @@ def get_resource_path(filename):
         self.script_edit.setText(path)
         if not self.app_name_edit.text(): self.app_name_edit.setText(Path(path).stem.replace('_', ' ').title())
 
-    def set_icon_path(self, path): 
+    def set_icon_path(self, path):
         self.icon_path = path
         self.icon_edit.setText(path)
 
@@ -860,12 +875,12 @@ def get_resource_path(filename):
         if not self.script_path:
             QMessageBox.warning(self, "Hold On!", "You forgot to choose a Python script first. Please drag and drop your .py file into Step 1.")
             return
-            
+
         if not self.check_and_install_nuitka(): return
-        
+
         include_pkgs = [p.strip() for p in self.include_pkg_edit.text().split(',') if p.strip()] if self.include_pkg_edit.text().strip() else []
         exclude_pkgs = [p.strip() for p in self.exclude_pkg_edit.text().split(',') if p.strip()] if self.exclude_pkg_edit.text().strip() else []
-        
+
         options = {
             "pyqt6": self.pyqt_check.isChecked(), "tkinter": self.tk_check.isChecked(),
             "lto": self.lto_check.isChecked(), "upx": self.upx_check.isChecked(),
@@ -875,15 +890,15 @@ def get_resource_path(filename):
             "app_company": self.app_company_edit.text().strip(), "include_packages": include_pkgs,
             "exclude_packages": exclude_pkgs, "run_as_admin": self.admin_check.isChecked()
         }
-        
+
         self.build_btn.setEnabled(False)
         self.build_btn.setText("  BUILDING... (Click to Cancel)  ")
         self.progress.setValue(0)
-        
+
         try: self.build_btn.clicked.disconnect()
         except TypeError: pass
         self.build_btn.clicked.connect(self.cancel_build)
-        
+
         self.build_thread = NuitkaBuildThread(self.script_path, str(Path(self.script_path).parent), self.env_edit.text(), self.icon_path, options)
         self.build_thread.output.connect(self.log)
         self.build_thread.progress.connect(self.progress.setValue)
@@ -899,7 +914,7 @@ def get_resource_path(filename):
         try: self.build_btn.clicked.disconnect()
         except TypeError: pass
         self.build_btn.clicked.connect(self.start_build)
-        
+
         if success:
             self.progress.setValue(100)
             self.log(f"  ✓ {message}", "success")
@@ -912,7 +927,7 @@ def get_resource_path(filename):
                 test_btn = msg_box.addButton("Test App Now", QMessageBox.ButtonRole.AcceptRole)
                 msg_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
                 msg_box.exec()
-                
+
                 if msg_box.clickedButton() == open_btn: self.open_folder(exe_path)
                 elif msg_box.clickedButton() == test_btn: self.test_app(exe_path)
         else:
@@ -939,21 +954,21 @@ def get_resource_path(filename):
     def setup_menubar(self):
         menubar = self.menuBar()
         menubar.setStyleSheet(f"QMenuBar {{ background-color: {C_BG}; color: {C_WHITE}; font-size: 13px; }} QMenuBar::item:selected {{ background: {C_RED}; }}")
-        
+
         file_menu = menubar.addMenu("&File")
         save_profile_action = QAction("Save Build Profile", self)
         save_profile_action.triggered.connect(self.save_profile)
         file_menu.addAction(save_profile_action)
-        
+
         load_profile_action = QAction("Load Build Profile", self)
         load_profile_action.triggered.connect(self.load_profile)
         file_menu.addAction(load_profile_action)
-        
+
         file_menu.addSeparator()
         clear_action = QAction("Clear Log", self)
         clear_action.triggered.connect(self.log_output.clear)
         file_menu.addAction(clear_action)
-        
+
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
@@ -989,7 +1004,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("RedTongue Crucible")
     app.setStyle("Fusion")
-    
+
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(C_BG))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(C_WHITE))
@@ -1000,7 +1015,7 @@ def main():
     palette.setColor(QPalette.ColorRole.Highlight, QColor(C_RED))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(C_WHITE))
     app.setPalette(palette)
-    
+
     window = CrucibleWindow()
     window.show()
     sys.exit(app.exec())

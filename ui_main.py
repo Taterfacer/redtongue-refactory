@@ -4,31 +4,45 @@ ui_main.py
 Main application window and UI components for the RedTongue Refactory.
 Handles layout, deck launching, AI chat streaming, and forensic linting.
 """
+import asyncio
+import json
 import os
 import sys
-import json
-import time
-import asyncio
 import threading
 from pathlib import Path
-from typing import Optional, List, Dict, Any
 
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QSplitter, QTreeView, QTabWidget, QPlainTextEdit, 
-    QPushButton, QLabel, QFrame, QCheckBox, QTableWidget, QTableWidgetItem, 
-    QHeaderView, QMenu, QStatusBar, QLineEdit, QFileDialog, QMenuBar,
-    QMessageBox, QShortcut, QPlainTextEdit, QSizePolicy
-)
-from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QFileSystemModel, QProcess, QUrl
-)
+from PyQt6.QtCore import QFileSystemModel, QProcess, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import (
-    QAction, QKeySequence, QFont, QColor, QPalette, QTextCharFormat, 
-    QSyntaxHighlighter, QTextCursor, QIcon
+    QAction,
+    QColor,
+    QFont,
+    QKeySequence,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+    QTextCursor,
+)
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QShortcut,
+    QSplitter,
+    QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
-from backend import AgentSwarm, ToolLayer, SpeechToText, load_config
+from backend import AgentSwarm, SpeechToText, ToolLayer, load_config
 
 # ==============================================================================
 # THEME CONSTANTS
@@ -127,14 +141,14 @@ class LintWorker(QThread):
                 for f in filenames:
                     if f.endswith(".py"):
                         files.append(os.path.join(root, f))
-            
+
             total = len(files)
             for i in range(0, total, self.batch_size):
                 if not self._is_running:
                     return
                 batch = files[i:i + self.batch_size]
                 self.progress.emit(f"Parsing batch {i//self.batch_size + 1}...")
-                
+
                 # Mock AST analysis for skeleton (replace with engine.ast_pass)
                 issues = []
                 for f in batch:
@@ -145,10 +159,10 @@ class LintWorker(QThread):
                             issues.append({"code": "AST-IMP001", "severity": "HIGH", "path": f, "line": 1, "msg": "Wildcard import detected."})
                     except Exception:
                         pass
-                
+
                 self.batch_ready.emit(issues)
                 self.msleep(100) # Yield to OS
-                
+
             self.finished_lint.emit({"total_files": total, "total_issues": 0})
         except Exception as e:
             self.progress.emit(f"Error: {e}")
@@ -167,7 +181,7 @@ class PythonHighlighter(QSyntaxHighlighter):
         kw_fmt = QTextCharFormat()
         kw_fmt.setForeground(QColor("#D4A76A"))
         kw_fmt.setFontWeight(QFont.Weight.Bold)
-        
+
         for kw in ['def', 'class', 'import', 'from', 'return', 'if', 'elif', 'else', 'for', 'while', 'try', 'except', 'with', 'as', 'pass', 'True', 'False', 'None']:
             self.rules.append((f"\\b{kw}\\b", kw_fmt))
 
@@ -215,7 +229,7 @@ class ChatPanel(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
         self.display.setStyleSheet(f"background: #050505; color: {C_WHITE}; border: none; font-family: Consolas;")
@@ -249,7 +263,7 @@ class ChatPanel(QWidget):
         text = self.stt.listen_and_transcribe()
         # Update UI on main thread
         from PyQt6.QtCore import QMetaObject, Qt
-        QMetaObject.invokeMethod(self, "_update_input", Qt.ConnectionType.QueuedConnection, 
+        QMetaObject.invokeMethod(self, "_update_input", Qt.ConnectionType.QueuedConnection,
                                  QMetaObject.Connection(lambda t=text: self.input.setText(t) if t else None))
         self.mic_btn.setText("🎤")
         self.mic_btn.setEnabled(True)
@@ -262,11 +276,11 @@ class ChatPanel(QWidget):
         text = self.input.text().strip()
         if not text or (self.worker and self.worker.isRunning()):
             return
-        
+
         self.input.clear()
         self.display.appendPlainText(f"[USER] {text}\n")
         self.history.append({"role": "user", "content": text})
-        
+
         self.worker = ChatWorker(self.swarm, text, self.history)
         self.worker.token_received.connect(self._append_token)
         self.worker.tool_executed.connect(self._append_tool)
@@ -376,15 +390,15 @@ class RefactoryMainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RedTongue Refactory v4.0.0")
         self.resize(1400, 900)
-        
+
         self.cfg = load_config()
         self.tool_layer = ToolLayer(str(Path.cwd()))
         self.swarm = AgentSwarm(self.tool_layer)
         self.stt = SpeechToText()
-        
+
         self.current_project = Path.cwd()
         self.current_file = None
-        
+
         self._build_ui()
         self._build_menus()
         self._setup_shortcuts()
@@ -418,7 +432,7 @@ class RefactoryMainWindow(QMainWindow):
         self.center_splitter = QSplitter(Qt.Orientation.Vertical)
         self.editor = CodeEditor()
         self.center_splitter.addWidget(self.editor)
-        
+
         self.lint_panel = LintPanel(self._push_lint_to_chat)
         self.center_splitter.addWidget(self.lint_panel)
         self.splitter.addWidget(self.center_splitter)
@@ -435,7 +449,7 @@ class RefactoryMainWindow(QMainWindow):
 
     def _build_menus(self):
         menubar = self.menuBar()
-        
+
         file_menu = menubar.addMenu("&File")
         file_menu.addAction("Open Project...", self._open_project, QKeySequence("Ctrl+O"))
         file_menu.addAction("Save", self._save_file, QKeySequence("Ctrl+S"))

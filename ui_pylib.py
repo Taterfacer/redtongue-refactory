@@ -2,25 +2,32 @@
 """
 ui_pylib.py
 RedTongue PyLib - Native PyQt6 Python Environment & Package Manager.
-Scans installed packages, manages virtual environments, and installs 
+Scans installed packages, manages virtual environments, and installs
 curated package stacks via a threaded pip worker.
 Optimized for low-RAM environments with native QTreeWidget rendering.
 """
-import sys
-import os
 import json
 import subprocess
-import threading
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+import sys
 
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QLabel, QFrame, QTreeWidget, QTreeWidgetItem,
-    QPlainTextEdit, QProgressBar, QMessageBox, QHeaderView, QCheckBox
-)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 # ==============================================================================
 # THEME & CONSTANTS
@@ -55,7 +62,7 @@ QScrollBar::handle:vertical:hover {{ background: {C_RED}; }}
 # ==============================================================================
 # PACKAGE CATALOG
 # ==============================================================================
-PACKAGE_CATALOG: Dict[str, List[Tuple[str, str]]] = {
+PACKAGE_CATALOG: dict[str, list[tuple[str, str]]] = {
     "Core & Utilities": [
         ("pip", "latest"), ("setuptools", "latest"), ("wheel", "latest"),
         ("virtualenv", "latest"), ("python-dotenv", "latest"), ("rich", "latest"),
@@ -126,7 +133,7 @@ class PipInstallWorker(QThread):
     log_output = pyqtSignal(str)
     finished_install = pyqtSignal(bool, str)  # success, message
 
-    def __init__(self, packages: List[str]):
+    def __init__(self, packages: list[str]):
         super().__init__()
         self.packages = packages
         self._stop = False
@@ -146,7 +153,7 @@ class PipInstallWorker(QThread):
                     process.terminate()
                     break
                 self.log_output.emit(line.rstrip())
-            
+
             process.wait()
             if self._stop:
                 self.finished_install.emit(False, "Installation cancelled by user.")
@@ -165,11 +172,11 @@ class PyLibWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RedTongue PyLib Manager")
         self.resize(1000, 700)
-        
-        self.installed_packages: Dict[str, str] = {}
-        self.list_worker: Optional[PipListWorker] = None
-        self.install_worker: Optional[PipInstallWorker] = None
-        
+
+        self.installed_packages: dict[str, str] = {}
+        self.list_worker: PipListWorker | None = None
+        self.install_worker: PipInstallWorker | None = None
+
         self._build_ui()
         self._refresh_packages()
 
@@ -185,18 +192,18 @@ class PyLibWindow(QMainWindow):
         toolbar.setObjectName("Panel")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(10, 8, 10, 8)
-        
+
         self.btn_refresh = QPushButton("Refresh List")
         self.btn_refresh.clicked.connect(self._refresh_packages)
         tb_layout.addWidget(self.btn_refresh)
-        
+
         tb_layout.addStretch()
-        
+
         self.btn_install = QPushButton("Install Selected")
         self.btn_install.setObjectName("Primary")
         self.btn_install.clicked.connect(self._install_selected)
         tb_layout.addWidget(self.btn_install)
-        
+
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self._cancel_install)
@@ -228,17 +235,17 @@ class PyLibWindow(QMainWindow):
         log_container = QWidget()
         log_layout = QVBoxLayout(log_container)
         log_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         self.log_text = QPlainTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMaximumBlockCount(500) # Prevent memory bloat
         log_layout.addWidget(self.log_text)
-        
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0) # Indeterminate
         self.progress_bar.hide()
         log_layout.addWidget(self.progress_bar)
-        
+
         split_layout.addWidget(log_container, 1)
         main_layout.addWidget(splitter, 1)
 
@@ -254,16 +261,16 @@ class PyLibWindow(QMainWindow):
         self.btn_refresh.setEnabled(False)
         self.status_lbl.setText("Scanning installed packages...")
         self._log("Starting package scan...")
-        
+
         self.list_worker = PipListWorker()
         self.list_worker.finished_scan.connect(self._on_scan_finished)
         self.list_worker.error.connect(self._on_scan_error)
         self.list_worker.start()
 
-    def _on_scan_finished(self, installed: Dict[str, str]):
+    def _on_scan_finished(self, installed: dict[str, str]):
         self.installed_packages = installed
         self.tree.clear()
-        
+
         total = 0
         for category, packages in PACKAGE_CATALOG.items():
             cat_item = QTreeWidgetItem(self.tree)
@@ -271,13 +278,13 @@ class PyLibWindow(QMainWindow):
             cat_item.setFont(0, QFont("Segoe UI", 12, QFont.Weight.Bold))
             cat_item.setFlags(cat_item.flags() | Qt.ItemFlag.ItemIsTristate | Qt.ItemFlag.ItemIsUserCheckable)
             cat_item.setCheckState(0, Qt.CheckState.Unchecked)
-            
+
             for pkg_name, pkg_ver in packages:
                 pkg_item = QTreeWidgetItem(cat_item)
                 pkg_item.setText(0, pkg_name)
                 pkg_item.setFlags(pkg_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 pkg_item.setCheckState(0, Qt.CheckState.Unchecked)
-                
+
                 pkg_lower = pkg_name.lower()
                 if pkg_lower in self.installed_packages:
                     pkg_item.setText(1, "Installed")
@@ -288,7 +295,7 @@ class PyLibWindow(QMainWindow):
                     pkg_item.setForeground(1, QColor(C_GRAY))
                     pkg_item.setText(2, pkg_ver)
                 total += 1
-                
+
         self.tree.expandAll()
         self.btn_refresh.setEnabled(True)
         self.status_lbl.setText(f"Scan complete. {len(self.installed_packages)} packages found in environment.")
@@ -299,7 +306,7 @@ class PyLibWindow(QMainWindow):
         self.status_lbl.setText("Scan failed.")
         self._log(f"Scan error: {err}")
 
-    def _get_selected_packages(self) -> List[str]:
+    def _get_selected_packages(self) -> list[str]:
         selected = []
         for i in range(self.tree.topLevelItemCount()):
             cat_item = self.tree.topLevelItem(i)
@@ -314,22 +321,22 @@ class PyLibWindow(QMainWindow):
         if not packages:
             QMessageBox.information(self, "No Selection", "Please select at least one package to install.")
             return
-            
+
         reply = QMessageBox.question(
-            self, "Confirm Installation", 
+            self, "Confirm Installation",
             f"Install {len(packages)} package(s)?\n\n" + ", ".join(packages[:10]) + ("..." if len(packages) > 10 else ""),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.No:
             return
-            
+
         self.btn_install.setEnabled(False)
         self.btn_cancel.setEnabled(True)
         self.progress_bar.show()
         self.status_lbl.setText(f"Installing {len(packages)} packages...")
         self._log(f"Starting installation of {len(packages)} packages...")
-        
+
         self.install_worker = PipInstallWorker(packages)
         self.install_worker.log_output.connect(self._log)
         self.install_worker.finished_install.connect(self._on_install_finished)
@@ -346,7 +353,7 @@ class PyLibWindow(QMainWindow):
         self.progress_bar.hide()
         self.status_lbl.setText(msg)
         self._log(msg)
-        
+
         if success:
             QMessageBox.information(self, "Success", "Packages installed successfully. Refreshing list...")
             self._refresh_packages()
@@ -359,12 +366,12 @@ class PyLibWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
-    
+
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(C_BG))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(C_WHITE))
     app.setPalette(palette)
-    
+
     window = PyLibWindow()
     window.show()
     sys.exit(app.exec())

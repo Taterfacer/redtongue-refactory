@@ -4,13 +4,12 @@ main.py
 Entry point for the RedTongue Refactory suite.
 Handles dependency bootstrapping, logging, splash screen, and application launch.
 """
-import os
-import sys
-import time
 import logging
 import subprocess
-from pathlib import Path
+import sys
+import time
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # ==============================================================================
 # CONSTANTS & PATHS
@@ -44,19 +43,19 @@ def setup_logging() -> logging.Logger:
     """Configures root logger with file and stream handlers."""
     logger = logging.getLogger("RedTongue")
     logger.setLevel(logging.INFO)
-    
+
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    
+
     fh = RotatingFileHandler(
         LOG_DIR / "refactory.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8"
     )
     fh.setFormatter(fmt)
     fh.setLevel(logging.DEBUG)
-    
+
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
     sh.setLevel(logging.INFO)
-    
+
     logger.addHandler(fh)
     logger.addHandler(sh)
     return logger
@@ -89,7 +88,7 @@ def bootstrap_core() -> None:
             __import__(module)
         except ImportError:
             missing.append(package)
-            
+
     if missing:
         logger.info(f"Installing core dependencies: {', '.join(missing)}")
         if not pip_install(missing):
@@ -104,46 +103,46 @@ def check_runtime_deps() -> None:
             __import__(module)
         except ImportError:
             missing.append(package)
-            
+
     if missing:
         logger.info(f"Missing optional dependencies: {', '.join(missing)}")
-        # In a full implementation, this would trigger a background thread 
+        # In a full implementation, this would trigger a background thread
         # to install them without blocking the UI.
-        # pip_install(missing) 
+        # pip_install(missing)
 
 # ==============================================================================
 # SPLASH SCREEN
 # ==============================================================================
 def create_splash(app) -> "QSplashScreen":
     """Creates and returns the Blood & Void themed splash screen."""
-    from PyQt6.QtWidgets import QSplashScreen
-    from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
     from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
+    from PyQt6.QtWidgets import QSplashScreen
 
     pixmap = QPixmap(400, 200)
     pixmap.fill(QColor("#050505"))
-    
+
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    
+
     # Draw border
     painter.setPen(QColor("#2a0a0a"))
     painter.setBrush(QColor("#0a0a0c"))
     painter.drawRoundedRect(5, 5, 390, 190, 10, 10)
-    
+
     # Draw Title
     painter.setPen(QColor("#8b0000"))
     title_font = QFont("Segoe UI", 22, QFont.Weight.Bold)
     painter.setFont(title_font)
     painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "RED TONGUE\nREFACTORY")
-    
+
     # Draw Version
     painter.setPen(QColor("#555555"))
     ver_font = QFont("Segoe UI", 9)
     painter.setFont(ver_font)
     painter.drawText(0, 180, 400, 15, Qt.AlignmentFlag.AlignCenter, f"v{APP_VERSION}")
     painter.end()
-    
+
     splash = QSplashScreen(pixmap)
     splash.setWindowFlags(
         Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
@@ -157,11 +156,11 @@ def main() -> None:
     """Application entry point."""
     # 1. Bootstrap core dependencies before importing Qt
     bootstrap_core()
-    
+
     # 2. Import PyQt6 (now guaranteed to be available)
-    from PyQt6.QtWidgets import QApplication, QMessageBox
     from PyQt6.QtCore import Qt
-    
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+
     # 3. Initialize Qt Application
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -169,16 +168,16 @@ def main() -> None:
     app.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
-    
+
     # 4. Show Splash Screen
     splash = create_splash(app)
     splash.show()
     app.processEvents()
     time.sleep(0.5)
-    
+
     # 5. Check runtime dependencies (non-blocking)
     check_runtime_deps()
-    
+
     # 6. Launch Main UI
     try:
         from ui_main import RefactoryMainWindow
@@ -192,7 +191,7 @@ def main() -> None:
             None, "Fatal Error", f"Failed to initialize UI:\n\n{e}"
         )
         sys.exit(1)
-        
+
     # 7. Start Event Loop
     sys.exit(app.exec())
 

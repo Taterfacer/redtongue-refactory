@@ -11,16 +11,15 @@ import importlib.util
 import json
 import logging
 import os
-import platform
-import re
 import shutil
 import subprocess
 import sys
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, Sequence, Tuple
+from typing import Any
 
 logger = logging.getLogger("RedTongue.Engine")
 
@@ -34,11 +33,9 @@ class LintStackError(Exception):
 
 class BootstrapFailure(LintStackError):
     """Raised when the engine cannot bootstrap its environment."""
-    pass
 
 class EngineUnavailable(LintStackError):
     """Raised when a required engine component is missing."""
-    pass
 
 _BUILTIN_NAMES = frozenset(n for n in dir(builtins) if not n.startswith("_"))
 _JUNK_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".lintstack", ".red_tongue_index"}
@@ -47,7 +44,7 @@ _JUNK_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".lintstack", ".re
 # Interpreter Detection (Cross-Platform)
 # ==============================================================================
 
-def detect_target(cfg: Any, log: logging.Logger) -> Tuple[str, str]:
+def detect_target(cfg: Any, log: logging.Logger) -> tuple[str, str]:
     """
     Finds the best Python interpreter for the target environment.
     Honors the Windows 'py' launcher and falls back to standard discovery.
@@ -87,7 +84,7 @@ def detect_target(cfg: Any, log: logging.Logger) -> Tuple[str, str]:
                     return exe, proc.stdout.strip()
             except (OSError, subprocess.SubprocessError):
                 continue
-            
+
     # Fallback to current interpreter
     return sys.executable, f"{sys.version_info.major}.{sys.version_info.minor}"
 
@@ -105,8 +102,8 @@ class DiscoveredFile:
 
 @dataclass(slots=True)
 class DiscoveryResult:
-    files: List[DiscoveredFile]
-    changed: List[str]
+    files: list[DiscoveredFile]
+    changed: list[str]
     total_bytes_read: int
     elapsed_s: float
 
@@ -116,33 +113,33 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
     Uses lexicographic sorting to optimize sequential reads on mechanical HDDs.
     """
     t0 = time.monotonic()
-    files: List[DiscoveredFile] = []
-    changed: List[str] = []
+    files: list[DiscoveredFile] = []
+    changed: list[str] = []
     read_total = 0
-    
+
     project_root = cfg.project_root if hasattr(cfg, "project_root") else Path.cwd()
-    
+
     for dirpath, dirnames, filenames in os.walk(project_root, topdown=True):
         # Sort directories in-place for lexicographic traversal
         dirnames[:] = sorted([d for d in dirnames if d not in _JUNK_DIRS])
-        
+
         for fname in sorted(filenames):
             if not fname.endswith(".py"):
                 continue
-                
+
             abs_path = Path(dirpath) / fname
             try:
                 rel = abs_path.relative_to(project_root).as_posix()
                 st = abs_path.stat()
-                
+
                 # Simple hash for change detection (full SHA256 deferred to AST pass if needed)
                 digest = f"{st.st_size}:{st.st_mtime_ns}"
-                
+
                 files.append(DiscoveredFile(
-                    rel=rel, 
-                    abs=abs_path, 
-                    size=st.st_size, 
-                    mtime_ns=st.st_mtime_ns, 
+                    rel=rel,
+                    abs=abs_path,
+                    size=st.st_size,
+                    mtime_ns=st.st_mtime_ns,
                     sha256=digest
                 ))
                 changed.append(rel)
@@ -152,9 +149,9 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
                 continue
 
     return DiscoveryResult(
-        files=files, 
-        changed=changed, 
-        total_bytes_read=read_total, 
+        files=files,
+        changed=changed,
+        total_bytes_read=read_total,
         elapsed_s=time.monotonic() - t0
     )
 
@@ -181,9 +178,9 @@ class Issue:
 
 @dataclass(slots=True)
 class AstResult:
-    issues: List[Issue]
+    issues: list[Issue]
     import_graph: dict
-    failed_parse: List[str]
+    failed_parse: list[str]
 
 def _is_resolvable_external(top_name: str) -> bool:
     """Checks if a third-party module is actually installed in the environment."""
@@ -199,8 +196,8 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
     Performs cross-file structural analysis and deep AST checks.
     Processes files sequentially to maintain a low memory footprint.
     """
-    issues: List[Issue] = []
-    failed: List[str] = []
+    issues: list[Issue] = []
+    failed: list[str] = []
     graph = defaultdict(set)
 
     for f in files:
@@ -244,7 +241,7 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
                             message=f"Mutable default argument ({type(default).__name__}).",
                             explanation="Creates shared state across function calls. Use None and initialize inside."
                         ).compute_keys())
-                
+
                 # 3. Argument Shadowing
                 all_args = node.args.args + node.args.kwonlyargs + getattr(node.args, 'posonlyargs', [])
                 for arg in all_args:
@@ -270,7 +267,7 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
                                 explanation="Confirm package is installed in the target environment."
                             ).compute_keys())
                     graph[f.rel].add(top)
-                    
+
             elif isinstance(node, ast.ImportFrom):
                 if node.level == 0 and node.module:
                     top = node.module.split(".")[0]
@@ -290,7 +287,7 @@ def ast_pass(root: Path, files: Sequence[DiscoveredFile]) -> AstResult:
 # Ruff Integration
 # ==============================================================================
 
-def run_ruff(cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger) -> List[Issue]:
+def run_ruff(cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger) -> list[Issue]:
     """
     Executes Ruff for standard linting.
     Returns a list of Issue objects parsed from Ruff's JSON output.
@@ -300,19 +297,19 @@ def run_ruff(cfg: Any, files: Sequence[DiscoveredFile], log: logging.Logger) -> 
         log.warning("Ruff not found in PATH. Skipping standard lint.")
         return []
 
-    issues: List[Issue] = []
+    issues: list[Issue] = []
     project_root = cfg.project_root if hasattr(cfg, "project_root") else Path.cwd()
-    
+
     # Process in batches to avoid command line length limits
     batch_size = 50
     for i in range(0, len(files), batch_size):
         batch = files[i:i + batch_size]
         paths = [str(f.abs) for f in batch]
-        
+
         try:
             cmd = [ruff_exe, "check", "--output-format=json", "--no-fix", *paths]
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
+
             if proc.returncode in (0, 1): # 0 = clean, 1 = issues found
                 if proc.stdout.strip():
                     try:
@@ -352,11 +349,11 @@ class EngineContext:
     log: logging.Logger
     interpreter: str
     python_target: str
-    ruff_argv: Tuple[str, ...]
+    ruff_argv: tuple[str, ...]
     ruff_version: str
     steps: dict
 
-def heal(layout: Any, cfg: Any, verbose: bool = False) -> Tuple[EngineContext, Optional[str]]:
+def heal(layout: Any, cfg: Any, verbose: bool = False) -> tuple[EngineContext, str | None]:
     """
     Idempotent bring-up of the forensic environment.
     Ensures interpreter and Ruff are available.
@@ -364,19 +361,19 @@ def heal(layout: Any, cfg: Any, verbose: bool = False) -> Tuple[EngineContext, O
     log = logging.getLogger("RedTongue.Engine.Heal")
     if verbose:
         log.setLevel(logging.DEBUG)
-    
+
     # 1. Interpreter
     interp, py_target = detect_target(cfg, log)
     log.info(f"Target interpreter: {interp} ({py_target})")
-    
+
     # 2. Store (Placeholder for core.Store integration)
-    store = None 
-    
+    store = None
+
     # 3. Ruff
     ruff_exe = shutil.which("ruff")
     ruff_argv = (ruff_exe,) if ruff_exe else ()
     ruff_version = "unknown"
-    
+
     if ruff_exe:
         try:
             proc = subprocess.run([ruff_exe, "--version"], capture_output=True, text=True, timeout=5)
@@ -386,19 +383,19 @@ def heal(layout: Any, cfg: Any, verbose: bool = False) -> Tuple[EngineContext, O
             pass
 
     ctx = EngineContext(
-        layout=layout, 
-        cfg=cfg, 
-        store=store, 
+        layout=layout,
+        cfg=cfg,
+        store=store,
         log=log,
-        interpreter=interp, 
+        interpreter=interp,
         python_target=py_target,
-        ruff_argv=ruff_argv, 
+        ruff_argv=ruff_argv,
         ruff_version=ruff_version,
         steps={
-            "interpreter": "ok", 
-            "store": "ok", 
+            "interpreter": "ok",
+            "store": "ok",
             "ruff": "ok" if ruff_exe else "degraded"
         }
     )
-    
+
     return ctx, None

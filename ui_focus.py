@@ -6,28 +6,35 @@ Native PyQt6 productivity module featuring Pomodoro timer, task management,
 notes, statistics, and alarms. Includes a pure-Python WAV synthesizer for
 audio cues without external audio dependencies.
 """
-import os
-import sys
 import json
-import math
-import struct
-import wave
+import os
 import shutil
-import tempfile
+import struct
+import sys
 import threading
+import wave
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QLabel, QFrame, QStackedWidget, QLineEdit, QListWidget, 
-    QListWidgetItem, QPlainTextEdit, QSpinBox, QCheckBox, QCalendarWidget,
-    QScrollArea, QMessageBox, QSizePolicy, QAbstractItemView
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QPlainTextEdit,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
-from PyQt6.QtGui import QFont, QColor, QPalette
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 # ==============================================================================
 # THEME CONSTANTS (Blood & Void)
@@ -59,14 +66,14 @@ class DataManager:
         self._lock = threading.RLock()
         self._data = self._load()
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         if DATA_FILE.exists():
             try:
                 with open(DATA_FILE, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 pass
-        
+
         # Fallback to backups
         for i in range(self._MAX_BACKUPS, 0, -1):
             backup = DATA_FILE.with_suffix(f".json.bak{i}")
@@ -78,7 +85,7 @@ class DataManager:
                     continue
         return self._create_defaults()
 
-    def _create_defaults(self) -> Dict[str, Any]:
+    def _create_defaults(self) -> dict[str, Any]:
         return {
             "alarms": [],
             "day_notes": {},
@@ -110,7 +117,7 @@ class DataManager:
                     shutil.copy2(str(src), str(dst))
             if DATA_FILE.exists():
                 shutil.copy2(str(DATA_FILE), str(DATA_FILE.with_suffix(".json.bak1")))
-            
+
             # Atomic write
             tmp = DATA_FILE.with_suffix(".tmp")
             with open(tmp, "w", encoding="utf-8") as f:
@@ -141,7 +148,7 @@ class DataManager:
             self._data.setdefault("sessions", []).append(session)
         self.save()
 
-    def get_sessions(self, date_str: Optional[str] = None) -> List[Dict]:
+    def get_sessions(self, date_str: str | None = None) -> list[dict]:
         if date_str is None:
             date_str = datetime.now().strftime("%Y-%m-%d")
         with self._lock:
@@ -151,7 +158,7 @@ class DataManager:
         sessions = self.get_sessions()
         return sum(s["duration"] for s in sessions if s.get("type") == "focus" and s.get("completed"))
 
-    def add_task(self, text: str, priority: str = "normal") -> Dict:
+    def add_task(self, text: str, priority: str = "normal") -> dict:
         task = {
             "id": datetime.now().isoformat(),
             "text": text.strip(),
@@ -165,7 +172,7 @@ class DataManager:
         self.save()
         return task
 
-    def get_tasks(self, filter_status: str = "all") -> List[Dict]:
+    def get_tasks(self, filter_status: str = "all") -> list[dict]:
         with self._lock:
             tasks = list(self._data.get("tasks", []))
         if filter_status == "active":
@@ -190,7 +197,7 @@ class DataManager:
             self._data["tasks"] = [t for t in self._data.get("tasks", []) if t.get("id") != task_id]
         self.save()
 
-    def get_notes(self) -> List[Dict]:
+    def get_notes(self) -> list[dict]:
         with self._lock:
             return list(self._data.get("notes", []))
 
@@ -215,14 +222,14 @@ class SoundSynthesizer:
         amplitude = int(32767 * max(0, min(100, volume)) / 100.0)
         duration_ms = 300
         num_samples = int(SoundSynthesizer.SAMPLE_RATE * duration_ms / 1000)
-        
+
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with wave.open(str(filepath), "w") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(SoundSynthesizer.SAMPLE_RATE)
-            
+
             for i in range(num_samples):
                 if sound_type == "classic":
                     val = amplitude if int(i * 1000 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
@@ -236,7 +243,7 @@ class SoundSynthesizer:
                     val = amplitude if int(i * notes[note_idx] / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
                 else:
                     val = amplitude if int(i * 800 / SoundSynthesizer.SAMPLE_RATE) % 2 == 0 else -amplitude
-                
+
                 # Simple decay envelope
                 decay = 1.0 - (i / num_samples) * 0.5
                 val = int(val * decay)
@@ -254,7 +261,7 @@ class TimerPage(QWidget):
         self.total_s = 0
         self.is_running = False
         self.mode = "focus"
-        
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self._build_ui()
@@ -263,7 +270,7 @@ class TimerPage(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         self.mode_label = QLabel("FOCUS TIME")
         self.mode_label.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_GRAY}; letter-spacing: 2px;")
         layout.addWidget(self.mode_label, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -283,11 +290,11 @@ class TimerPage(QWidget):
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(16)
-        
+
         self.btn_start = QPushButton("START")
         self.btn_start.setObjectName("Primary")
         self.btn_start.setFixedSize(140, 50)
-        self.btn_start.setStyleSheet(f"font-size: 18px;")
+        self.btn_start.setStyleSheet("font-size: 18px;")
         self.btn_start.clicked.connect(self._toggle)
         btn_layout.addWidget(self.btn_start)
 
@@ -313,7 +320,7 @@ class TimerPage(QWidget):
             b.setFixedHeight(36)
             b.clicked.connect(lambda checked, m=b.text().lower().replace(" ", "_"): self._user_set_mode(m))
             mode_layout.addWidget(b)
-        
+
         layout.addSpacing(20)
         layout.addLayout(mode_layout)
         layout.addStretch()
@@ -326,7 +333,7 @@ class TimerPage(QWidget):
         self.is_running = False
         self.timer.stop()
         self.btn_start.setText("START")
-        
+
         if mode == "focus":
             mins = self.dm.get_setting("focus_duration", 25)
             self.mode_label.setText("FOCUS TIME")
@@ -374,7 +381,7 @@ class TimerPage(QWidget):
     def _complete_session(self):
         self.is_running = False
         self.timer.stop()
-        
+
         # Play sound
         sound_path = CONFIG_DIR / "sounds" / f"{self.mode}.wav"
         SoundSynthesizer.generate(sound_path, sound_type=self.mode, volume=self.dm.get_setting("voice_volume", 80))
@@ -390,7 +397,7 @@ class TimerPage(QWidget):
     def _update_display(self):
         mins, secs = divmod(self.remaining_s, 60)
         self.time_label.setText(f"{mins:02d}:{secs:02d}")
-        
+
         if self.total_s > 0:
             pct = 1.0 - (self.remaining_s / self.total_s)
             self.progress_fill.setFixedWidth(int(500 * pct))
@@ -405,7 +412,7 @@ class TasksPage(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         header = QHBoxLayout()
         title = QLabel("TASKS")
         title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
@@ -418,7 +425,7 @@ class TasksPage(QWidget):
         self.input.setPlaceholderText("What needs to be done?")
         self.input.returnPressed.connect(self._add_task)
         input_layout.addWidget(self.input, 1)
-        
+
         btn_add = QPushButton("ADD")
         btn_add.setObjectName("Primary")
         btn_add.clicked.connect(self._add_task)
@@ -456,14 +463,14 @@ class TasksPage(QWidget):
     def _show_context_menu(self, pos):
         item = self.list.itemAt(pos)
         if not item: return
-        
+
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         menu.setStyleSheet(f"background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER};")
-        
+
         toggle_action = menu.addAction("Toggle Complete")
         delete_action = menu.addAction("Delete")
-        
+
         action = menu.exec(self.list.mapToGlobal(pos))
         if action == toggle_action:
             task_id = item.data(Qt.ItemDataRole.UserRole)
@@ -488,7 +495,7 @@ class NotesPage(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         title = QLabel("QUICK NOTES")
         title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
         layout.addWidget(title)
@@ -496,8 +503,8 @@ class NotesPage(QWidget):
         self.editor = QPlainTextEdit()
         self.editor.setStyleSheet(f"""
             QPlainTextEdit {{
-                background-color: {C_INPUT}; color: {C_WHITE}; 
-                border: 1px solid {C_BORDER}; border-radius: 4px; 
+                background-color: {C_INPUT}; color: {C_WHITE};
+                border: 1px solid {C_BORDER}; border-radius: 4px;
                 font-family: 'Consolas', monospace; font-size: 14px; padding: 10px;
             }}
         """)
@@ -531,7 +538,7 @@ class StatsPage(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         title = QLabel("STATISTICS")
         title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {C_WHITE}; letter-spacing: 2px;")
         layout.addWidget(title)
@@ -548,7 +555,7 @@ class StatsPage(QWidget):
 
         sessions = self.dm.get_sessions()
         tasks = self.dm.get_tasks("completed")
-        
+
         today = datetime.now().strftime("%Y-%m-%d")
         today_sessions = [s for s in sessions if s.get("date") == today and s.get("type") == "focus" and s.get("completed")]
         today_mins = sum(s.get("duration", 0) for s in today_sessions) // 60
@@ -564,15 +571,15 @@ class StatsPage(QWidget):
             card.setStyleSheet(f"background-color: {C_PANEL}; border: 1px solid {C_BORDER}; border-radius: 8px;")
             c_layout = QVBoxLayout(card)
             c_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            
+
             v_lbl = QLabel(str(val))
             v_lbl.setStyleSheet(f"font-size: 48px; font-weight: bold; color: {color};")
             c_layout.addWidget(v_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-            
+
             t_lbl = QLabel(label)
             t_lbl.setStyleSheet(f"font-size: 14px; color: {C_GRAY};")
             c_layout.addWidget(t_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-            
+
             self.stats_layout.addWidget(card)
 
 # ==============================================================================
@@ -584,9 +591,9 @@ class FocusStudioWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(1000, 700)
         self.setMinimumSize(800, 600)
-        
+
         self.dm = DataManager()
-        
+
         # Audio Player
         self.audio_output = QAudioOutput()
         self.audio_output.setVolume(self.dm.get_setting("voice_volume", 80) / 100.0)
@@ -618,13 +625,13 @@ class FocusStudioWindow(QMainWindow):
         s_layout.addWidget(sub)
 
         self.stack = QStackedWidget()
-        
+
         # Pages
         self.timer_page = TimerPage(self.dm, self.audio_player)
         self.tasks_page = TasksPage(self.dm)
         self.notes_page = NotesPage(self.dm)
         self.stats_page = StatsPage(self.dm)
-        
+
         self.stack.addWidget(self.timer_page)
         self.stack.addWidget(self.tasks_page)
         self.stack.addWidget(self.notes_page)
@@ -660,7 +667,7 @@ class FocusStudioWindow(QMainWindow):
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self.nav_btns):
             btn.setChecked(i == idx)
-        
+
         if idx == 3: # Stats
             self.stats_page.refresh()
 
@@ -672,7 +679,7 @@ if __name__ == "__main__":
         QPushButton#Primary:hover {{ background-color: {C_RED_HOVER}; }}
         QLineEdit {{ background-color: {C_INPUT}; border: 1px solid {C_BORDER}; color: {C_WHITE}; padding: 8px; border-radius: 4px; }}
     """)
-    
+
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(C_BG))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(C_WHITE))

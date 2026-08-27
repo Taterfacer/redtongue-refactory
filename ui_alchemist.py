@@ -6,27 +6,35 @@ Converts images, audio, video, and documents.
 Features auto-provisioning of external tools (FFmpeg, Tesseract),
 multi-threaded batch processing, and a Potato PC optimized UI.
 """
-import os
-import sys
-import time
 import shutil
-import hashlib
-import tempfile
-import threading
 import subprocess
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Callable, Tuple, Any
 
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QPalette
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QLabel, QFrame, QComboBox, QCheckBox, QLineEdit, 
-    QFileDialog, QListWidget, QListWidgetItem, QProgressBar, 
-    QSplitter, QTextEdit, QGroupBox, QMessageBox, QTabWidget,
-    QScrollArea, QSizePolicy, QAbstractItemView
+    QAbstractItemView,
+    QApplication,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QMimeData
-from PyQt6.QtGui import QFont, QColor, QPalette, QPixmap, QDragEnterEvent, QDropEvent
 
 # ==============================================================================
 # THEME & CONSTANTS
@@ -79,7 +87,7 @@ class ConvertSettings:
     conflict_mode: str = "rename"  # rename, overwrite, skip
 
 class ConverterRegistry:
-    _converters: Dict[Tuple[str, str], Callable] = {}
+    _converters: dict[tuple[str, str], Callable] = {}
 
     @classmethod
     def register(cls, src_ext: str, dst_ext: str):
@@ -89,11 +97,11 @@ class ConverterRegistry:
         return decorator
 
     @classmethod
-    def get(cls, src_ext: str, dst_ext: str) -> Optional[Callable]:
+    def get(cls, src_ext: str, dst_ext: str) -> Callable | None:
         return cls._converters.get((src_ext.lower(), dst_ext.lower()))
 
     @classmethod
-    def list_targets(cls, src_ext: str) -> List[str]:
+    def list_targets(cls, src_ext: str) -> list[str]:
         return sorted([dst for src, dst in cls._converters.keys() if src == src_ext.lower()])
 
 def get_ext(path: str) -> str:
@@ -146,7 +154,7 @@ def img_to_pdf(src: Path, dst: Path, settings: ConvertSettings):
     img.save(dst, "PDF", resolution=settings.dpi)
 
 # --- Core Converters (Audio/Video via FFmpeg) ---
-def run_ffmpeg(src: Path, dst: Path, args: List[str], progress_cb: Optional[Callable] = None):
+def run_ffmpeg(src: Path, dst: Path, args: list[str], progress_cb: Callable | None = None):
     cmd = ["ffmpeg", "-y", "-i", str(src)] + args + [str(dst)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if proc.returncode != 0:
@@ -201,10 +209,10 @@ class ToolManager(QThread):
             # In a full implementation, this would download FFmpeg binaries
             # For now, we rely on system PATH or user installation.
             self.status_update.emit("FFmpeg not found in PATH. Please install.")
-        
+
         if not self.tesseract_path:
             self.status_update.emit("Tesseract not found. OCR disabled.")
-            
+
         self.tools_ready.emit()
 
 # ==============================================================================
@@ -215,7 +223,7 @@ class ConversionWorker(QThread):
     log_message = pyqtSignal(str, str)    # message, level (info, success, error)
     finished_batch = pyqtSignal(int, int) # ok_count, fail_count
 
-    def __init__(self, tasks: List[Tuple[Path, str, Path, ConvertSettings]]):
+    def __init__(self, tasks: list[tuple[Path, str, Path, ConvertSettings]]):
         super().__init__()
         self.tasks = tasks
         self._stop = False
@@ -226,17 +234,17 @@ class ConversionWorker(QThread):
     def run(self):
         ok, fail = 0, 0
         total = len(self.tasks)
-        
+
         for i, (src, dst_ext, out_dir, settings) in enumerate(self.tasks):
             if self._stop: break
-            
+
             self.progress.emit(i + 1, total, src.name)
-            
+
             try:
                 converter = ConverterRegistry.get(get_ext(src), dst_ext)
                 if not converter:
                     raise ValueError(f"No converter for .{get_ext(src)} -> .{dst_ext}")
-                
+
                 dst_path = out_dir / f"{src.stem}.{dst_ext}"
                 if settings.conflict_mode == "rename":
                     dst_path = unique_output_path(dst_path)
@@ -244,14 +252,14 @@ class ConversionWorker(QThread):
                     self.log_message.emit(f"Skipped: {src.name}", "info")
                     ok += 1
                     continue
-                
+
                 converter(src, dst_path, settings)
                 self.log_message.emit(f"Converted: {src.name} -> {dst_path.name}", "success")
                 ok += 1
             except Exception as e:
-                self.log_message.emit(f"Failed: {src.name} ({str(e)})", "error")
+                self.log_message.emit(f"Failed: {src.name} ({e!s})", "error")
                 fail += 1
-                
+
         self.finished_batch.emit(ok, fail)
 
 # ==============================================================================
@@ -262,12 +270,12 @@ class AlchemistWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("RedTongue Alchemist")
         self.resize(1200, 800)
-        
-        self.files: List[Path] = []
+
+        self.files: list[Path] = []
         self.settings = ConvertSettings()
-        self.worker: Optional[ConversionWorker] = None
+        self.worker: ConversionWorker | None = None
         self.tool_manager = ToolManager()
-        
+
         self._build_ui()
         self._connect_signals()
         self.tool_manager.start()
@@ -282,19 +290,19 @@ class AlchemistWindow(QMainWindow):
         left_pane = QFrame()
         left_pane.setObjectName("Panel")
         left_layout = QVBoxLayout(left_pane)
-        
+
         self.file_list = QListWidget()
         self.file_list.setAcceptDrops(True)
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
         self.file_list.itemDoubleClicked.connect(self._remove_file)
         left_layout.addWidget(QLabel("Files (Drop here)"))
         left_layout.addWidget(self.file_list, 1)
-        
+
         btn_layout = QHBoxLayout()
         self.btn_add = QPushButton("Add Files")
         self.btn_add.clicked.connect(self._add_files)
         btn_layout.addWidget(self.btn_add)
-        
+
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.clicked.connect(self.file_list.clear)
         btn_layout.addWidget(self.btn_clear)
@@ -302,7 +310,7 @@ class AlchemistWindow(QMainWindow):
 
         # --- Center Pane: Preview & Settings ---
         center_splitter = QSplitter(Qt.Orientation.Vertical)
-        
+
         # Preview
         preview_group = QGroupBox("Preview")
         preview_layout = QVBoxLayout(preview_group)
@@ -315,7 +323,7 @@ class AlchemistWindow(QMainWindow):
         # Settings
         settings_group = QGroupBox("Conversion Settings")
         settings_layout = QVBoxLayout(settings_group)
-        
+
         fmt_layout = QHBoxLayout()
         fmt_layout.addWidget(QLabel("Format:"))
         self.fmt_combo = QComboBox()
@@ -344,14 +352,14 @@ class AlchemistWindow(QMainWindow):
         self.conflict_combo.addItems(["rename", "overwrite", "skip"])
         settings_layout.addWidget(QLabel("If file exists:"))
         settings_layout.addWidget(self.conflict_combo)
-        
+
         center_splitter.addWidget(settings_group)
 
         # --- Right Pane: Output & Actions ---
         right_pane = QFrame()
         right_pane.setObjectName("Panel")
         right_layout = QVBoxLayout(right_pane)
-        
+
         out_group = QGroupBox("Output Directory")
         out_layout = QVBoxLayout(out_group)
         self.out_dir_edit = QLineEdit(str(Path.home()))
@@ -411,13 +419,13 @@ class AlchemistWindow(QMainWindow):
 
     def _update_preview(self):
         items = self.file_list.selectedItems()
-        if not items: 
+        if not items:
             self.preview_label.setText("Select a file to preview")
             return
-        
+
         path = self.files[self.file_list.row(items[0])]
         ext = get_ext(path)
-        
+
         if ext in ("jpg", "jpeg", "png", "bmp", "webp") and HAS_PIL:
             try:
                 img = Image.open(path)
@@ -434,15 +442,15 @@ class AlchemistWindow(QMainWindow):
         if not self.files:
             QMessageBox.warning(self, "No Files", "Add files to convert.")
             return
-            
+
         out_dir = Path(self.out_dir_edit.text())
         out_dir.mkdir(parents=True, exist_ok=True)
-        
+
         fmt = self.fmt_combo.currentText()
         self.settings.quality = int(self.quality_spin.currentText())
         self.settings.bitrate = self.bitrate_combo.currentText()
         self.settings.conflict_mode = self.conflict_combo.currentText()
-        
+
         tasks = []
         for src in self.files:
             src_ext = get_ext(src)
@@ -454,10 +462,10 @@ class AlchemistWindow(QMainWindow):
                 else: continue
             else:
                 target = fmt
-                
+
             if ConverterRegistry.get(src_ext, target):
                 tasks.append((src, target, out_dir, self.settings))
-                
+
         if not tasks:
             QMessageBox.warning(self, "No Valid Tasks", "No compatible converters found for selected files/formats.")
             return
@@ -465,7 +473,7 @@ class AlchemistWindow(QMainWindow):
         self.btn_convert.setEnabled(False)
         self.btn_convert.setText("CONVERTING...")
         self.log_text.clear()
-        
+
         self.worker = ConversionWorker(tasks)
         self.worker.progress.connect(self._on_progress)
         self.worker.log_message.connect(self._log)
@@ -505,12 +513,12 @@ class AlchemistWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
-    
+
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(C_BG))
     palette.setColor(QPalette.ColorRole.WindowText, QColor(C_WHITE))
     app.setPalette(palette)
-    
+
     window = AlchemistWindow()
     window.show()
     sys.exit(app.exec())

@@ -17,18 +17,18 @@ import logging
 import os
 import random
 import re
-import socket
 import sqlite3
 import sys
 import tempfile
 import threading
 import time
 from collections import deque
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import IntEnum
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Callable, Iterator, List, Optional, Sequence
+from typing import Any
 
 # ==============================================================================
 # CONSTANTS & EXIT CODES
@@ -47,11 +47,9 @@ class LintStackError(Exception):
 
 class ConfigError(LintStackError):
     """Configuration validation or parsing failure."""
-    pass
 
 class StoreError(LintStackError):
     """SQLite store operation failure."""
-    pass
 
 class StoreCorrupt(StoreError):
     """SQLite database corruption detected."""
@@ -59,7 +57,6 @@ class StoreCorrupt(StoreError):
 
 class AtomicWriteError(LintStackError):
     """Atomic file write failure."""
-    pass
 
 class LockBusy(LintStackError):
     """Advisory file lock acquisition failure."""
@@ -107,11 +104,11 @@ class Issue:
     def compute_keys(self) -> "Issue":
         """Generates fingerprint and dedupe keys for the issue."""
         self.fingerprint = fingerprint(
-            self.source, self.code, self.message, 
+            self.source, self.code, self.message,
             self.path, self.qualname, self.line_start
         )
         self.dedupe_key = "\x1f".join((
-            self.source, self.code, self.path, 
+            self.source, self.code, self.path,
             str(self.line_start), self.message
         ))
         return self
@@ -135,8 +132,8 @@ class Config:
     project_root: Path
     state_dir: Path
     exclude: tuple = tuple()
-    ruff_path: Optional[str] = None
-    target_python: Optional[str] = None
+    ruff_path: str | None = None
+    target_python: str | None = None
     limit_mem_mb: int = 768
     wall_seconds: float = 30.0
     gov_enabled: bool = True
@@ -184,7 +181,7 @@ class Layout:
 # ==============================================================================
 # UTILITIES
 # ==============================================================================
-def iso_utc(ts: Optional[float] = None) -> str:
+def iso_utc(ts: float | None = None) -> str:
     """Returns ISO 8601 UTC timestamp."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts or time.time()))
 
@@ -221,20 +218,20 @@ def setup_logging(logs_dir: Path, verbose: bool = False) -> logging.Logger:
             return lg
         logs_dir.mkdir(parents=True, exist_ok=True)
         lg.setLevel(logging.DEBUG)
-        
+
         sh = logging.StreamHandler(sys.stderr)
         sh.setLevel(logging.DEBUG if verbose else logging.WARNING)
         sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-        
+
         fh = RotatingFileHandler(
-            logs_dir / "lintstack.log", 
+            logs_dir / "lintstack.log",
             maxBytes=2_000_000, backupCount=3, encoding="utf-8"
         )
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s %(module)s:%(lineno)d :: %(message)s"
         ))
-        
+
         lg.addHandler(sh)
         lg.addHandler(fh)
         lg.propagate = False
@@ -257,7 +254,7 @@ def normalize_message(message: str) -> str:
     return _RX_WS.sub(" ", s).strip().lower()
 
 def fingerprint(
-    source: str, code: str, message: str, 
+    source: str, code: str, message: str,
     path: str, qualname: str, line_start: int
 ) -> str:
     """Generates a 16-char deterministic fingerprint for an issue."""
@@ -278,9 +275,9 @@ def atomic_write(destination: Path, data: bytes, *, mode: int = 0o600) -> None:
     dest = destination.absolute()
     parent = dest.parent
     parent.mkdir(parents=True, exist_ok=True)
-    
+
     fd = -1
-    tmp_path: Optional[Path] = None
+    tmp_path: Path | None = None
     try:
         fd, tmp_name = tempfile.mkstemp(prefix=_TMP_PREFIX, dir=str(parent))
         tmp_path = Path(tmp_name)
@@ -322,7 +319,7 @@ class FileLock:
     """Cross-platform advisory file lock."""
     def __init__(self, path: Path):
         self.path = path
-        self._fh: Optional[Any] = None
+        self._fh: Any | None = None
 
     def acquire(self, timeout: float = 0.0) -> None:
         deadline = time.monotonic() + timeout
@@ -393,7 +390,7 @@ def cpu_core_count() -> int:
     except AttributeError:
         return max(1, os.cpu_count() or 1)
 
-def read_psi_percent(kind: str) -> Optional[float]:
+def read_psi_percent(kind: str) -> float | None:
     """Reads Linux PSI (Pressure Stall Information). Windows returns None."""
     if sys.platform == "win32":
         return None
@@ -402,7 +399,7 @@ def read_psi_percent(kind: str) -> Optional[float]:
             text = fh.read().decode("ascii", errors="replace")
     except OSError:
         return None
-    
+
     want_full = want_some = None
     for line in text.splitlines():
         parts = line.split()
@@ -425,7 +422,7 @@ def read_psi_percent(kind: str) -> Optional[float]:
             want_some = val
     return want_full if want_full is not None else want_some
 
-def read_mem_available_mb() -> Optional[float]:
+def read_mem_available_mb() -> float | None:
     """Cross-platform memory availability. Uses ctypes on Windows, /proc on Linux."""
     if sys.platform == "win32":
         class MEMORYSTATUSEX(ctypes.Structure):
@@ -455,7 +452,7 @@ def read_mem_available_mb() -> Optional[float]:
         pass
     return None
 
-def read_load1() -> Optional[float]:
+def read_load1() -> float | None:
     """Reads 1-minute load average. Windows returns None."""
     if sys.platform == "win32":
         return None
@@ -480,10 +477,10 @@ def _proc_self_cpu_ticks() -> tuple:
 @dataclass(frozen=True, slots=True)
 class LoadSample:
     """Snapshot of system load metrics."""
-    psi_mem: Optional[float]
-    psi_io: Optional[float]
-    avail_mb: Optional[float]
-    load1_ratio: Optional[float]
+    psi_mem: float | None
+    psi_io: float | None
+    avail_mb: float | None
+    load1_ratio: float | None
     self_cpu_pct: float
     mono: float
 
@@ -501,37 +498,35 @@ class LoadSample:
 class Governor:
     """
     Adaptive throttle controller.
-    Optimized for 8GB RAM / HDD: Aggressively yields to OS/Chrome 
+    Optimized for 8GB RAM / HDD: Aggressively yields to OS/Chrome
     when memory drops below 1.2GB. Falls back to MEMONLY mode on Windows.
     """
     SAMPLE_INTERVAL_S = 0.10
     BLAME_CPU_PCT = 50.0
 
     def __init__(
-        self, 
-        cfg: Config, 
-        recorder: Optional[Callable[[int, int, str], None]] = None,
-        renice_hook: Optional[Callable[[int], None]] = None
+        self,
+        cfg: Config,
+        recorder: Callable[[int, int, str], None] | None = None,
+        renice_hook: Callable[[int], None] | None = None
     ) -> None:
         self.cfg = cfg
         self.recorder = recorder
         self.renice_hook = renice_hook
         self.mode = "FULL"
-        
+
         probe_mem = read_mem_available_mb()
         probe_psi = read_psi_percent("memory")
-        
-        if not cfg.gov_enabled:
-            self.mode = "FIXED-POLITE"
-        elif probe_psi is None and probe_mem is None:
+
+        if not cfg.gov_enabled or probe_psi is None and probe_mem is None:
             self.mode = "FIXED-POLITE"
         elif probe_psi is None:
             self.mode = "MEMONLY"
-        
+
         self._level = 0
         self._hist: deque = deque(maxlen=3)
         self._last_sample_mono = 0.0
-        self._last: Optional[LoadSample] = None
+        self._last: LoadSample | None = None
         self._prev_ticks = _proc_self_cpu_ticks()
         self._prev_tick_mono = time.monotonic()
         self._reniced = False
@@ -561,19 +556,19 @@ class Governor:
         avail = read_mem_available_mb()
         load = read_load1()
         ticks_self, ticks_children = _proc_self_cpu_ticks()
-        
+
         dt = now - self._prev_tick_mono
         if dt <= 0.0:
             dt = 1e-6
-            
+
         total_delta = (ticks_self - self._prev_ticks[0]) + (ticks_children - self._prev_ticks[1])
         pct = total_delta / (_TICKS * dt * cpu_core_count()) * 100.0
         pct = max(0.0, min(pct, 400.0))
-        
+
         self._prev_ticks = (ticks_self, ticks_children)
         self._prev_tick_mono = now
         self._last_sample_mono = now
-        
+
         s = LoadSample(
             psi_mem=psi_mem, psi_io=psi_io, avail_mb=avail,
             load1_ratio=(load / cpu_core_count()) if load is not None else None,
@@ -581,7 +576,7 @@ class Governor:
         )
         self._last = s
         self.mode = s.degrade() if self.cfg.gov_enabled else "FIXED-POLITE"
-        
+
         if self.mode != "FIXED-POLITE":
             self._advance(s)
         return s
@@ -602,20 +597,20 @@ class Governor:
         cls = self._classify(s)
         self._hist.append(cls)
         n = len(self._hist)
-        
+
         pause_avail_instant = (s.avail_mb is not None and s.avail_mb < self.cfg.gov_pause_avail_mb)
         if not self._in_pause and pause_avail_instant:
             self._enter_pause(reason="avail-floor")
-            
+
         if cls["recover_ok"]:
             self._recovery_hits += 1
         else:
             self._recovery_hits = 0
-            
+
         hits1 = sum(1 for h in self._hist if h["p1"])
         hits2 = sum(1 for h in self._hist if h["p2"])
         candidate = 0
-        
+
         if n >= 2 and hits1 >= 2:
             candidate = 1
         if n >= 2 and hits2 >= 2:
@@ -624,10 +619,10 @@ class Governor:
             candidate = 2
         elif s.avail_mb is not None and s.avail_mb < self.cfg.gov_soft_avail_mb:
             candidate = max(candidate, 1)
-            
+
         prev = self._level
         if candidate > prev:
-            self._set_level(candidate, f"escalate(psi/avail/load)")
+            self._set_level(candidate, "escalate(psi/avail/load)")
             self._desc_holds = 0
         elif candidate < prev:
             self._desc_holds += 1
@@ -665,15 +660,15 @@ class Governor:
         if self.mode == "FIXED-POLITE":
             time.sleep(self.cfg.gov_min_gate_ms * 4 / 1000.0)
             return
-            
+
         now = time.monotonic()
         if now - self._last_sample_mono >= self.SAMPLE_INTERVAL_S:
             self.sample()
-            
+
         lvl = self.active_level
         if lvl <= 0:
             return
-            
+
         if lvl >= 3:
             entered = self._pause_started_mono
             forced_deadline = entered + self.cfg.gov_max_pause_s
@@ -687,7 +682,7 @@ class Governor:
                     self._exit_pause(forced=True)
                     break
             return
-            
+
         if lvl == 1:
             delay = self._sleep_rng.uniform(0.025, 0.075)
         else:
@@ -700,7 +695,7 @@ class Governor:
         return {
             "mode": self.mode, "level": self.active_level, "in_pause": self._in_pause,
             "psi_mem": s.psi_mem if s else None, "psi_io": s.psi_io if s else None,
-            "avail_mb": s.avail_mb if s else None, 
+            "avail_mb": s.avail_mb if s else None,
             "self_cpu_pct": round(s.self_cpu_pct, 2) if s else None
         }
 
@@ -713,7 +708,7 @@ class Store:
         self.path = db_path
         self._lock = threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         self._conn = sqlite3.connect(
             str(db_path), timeout=5.0, check_same_thread=False, isolation_level=None
         )
@@ -721,7 +716,7 @@ class Store:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute("PRAGMA cache_size=-2000")
-        
+
     def close(self) -> None:
         with self._lock:
             if self._conn:
@@ -746,7 +741,7 @@ class Store:
     def finalize_run(self, run_id: int, **fields: Any) -> None:
         """Finalizes a forensic run."""
         with self._lock:
-            sets = ", ".join(f"{k} = ?" for k in fields.keys())
+            sets = ", ".join(f"{k} = ?" for k in fields)
             vals = list(fields.values()) + [run_id]
             self._conn.execute(
                 f"UPDATE runs SET {sets} WHERE id = ?", vals
@@ -767,7 +762,7 @@ class Store:
             count = cursor.rowcount
         return count
 
-    def journal(self, actor: str, action: str, detail: Optional[dict] = None) -> None:
+    def journal(self, actor: str, action: str, detail: dict | None = None) -> None:
         """Appends an entry to the audit journal."""
         with self._lock:
             self._conn.execute(

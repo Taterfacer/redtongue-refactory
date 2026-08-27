@@ -2,26 +2,32 @@
 """
 backend.py
 Core engine layer for the RedTongue Refactory.
-Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the 
+Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the
 DiagnosticBrain (ONNX SmolLM) for forensic compression.
 """
-import os
-import sys
-import io
-import re
-import json
-import time
+from __future__ import annotations
+
+import asyncio
 import base64
 import hashlib
+import io
+import json
 import logging
-import asyncio
-import threading
+import os
+import re
 import subprocess
-from pathlib import Path
+import sys
+import threading
+import time
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final
 
 import requests
+
+if TYPE_CHECKING:
+    from cryptography.fernet import Fernet
 
 try:
     import numpy as _np
@@ -30,24 +36,24 @@ except ImportError:
 
 try:
     import speech_recognition as sr
-    HAS_STT = True
+    HAS_STT: bool = True
 except ImportError:
     HAS_STT = False
 
 try:
     import onnxruntime as ort
-    HAS_ONNX = True
+    HAS_ONNX: bool = True
 except ImportError:
     HAS_ONNX = False
 
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG_FILE = BASE_DIR / "config.json"
-MASTER_KEY_SALT = b"red_tongue_v1_static_salt"
-PBKDF2_ITERATIONS = 200_000
+BASE_DIR: Final[Path] = Path(__file__).resolve().parent
+CONFIG_FILE: Final[Path] = BASE_DIR / "config.json"
+MASTER_KEY_SALT: Final[bytes] = b"red_tongue_v1_static_salt"
+PBKDF2_ITERATIONS: Final[int] = 200_000
 
-logger = logging.getLogger("RedTongue.Backend")
+logger: Final[logging.Logger] = logging.getLogger("RedTongue.Backend")
 
-AI_ROLE_PRESETS: Dict[str, dict] = {
+AI_ROLE_PRESETS: dict[str, dict] = {
     "quick_coding": {
         "provider": "groq",
         "base_url": "https://api.groq.com/openai/v1",
@@ -74,22 +80,23 @@ AI_ROLE_PRESETS: Dict[str, dict] = {
 # Config & Encryption
 # ==============================================================================
 
+
 @lru_cache(maxsize=1)
 def get_machine_key() -> bytes:
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives import hashes
-    
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
     try:
         identity = os.getlogin() + str(Path.home())
     except OSError:
         identity = str(Path.home())
-        
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(), length=32,
         salt=MASTER_KEY_SALT, iterations=PBKDF2_ITERATIONS,
     )
     return base64.urlsafe_b64encode(kdf.derive(identity.encode()))
+
 
 def encrypt_value(value: str) -> str:
     if not value:
@@ -97,24 +104,27 @@ def encrypt_value(value: str) -> str:
     from cryptography.fernet import Fernet
     return "ENC:" + Fernet(get_machine_key()).encrypt(value.encode("utf-8")).decode("ascii")
 
+
 def decrypt_value(value: str) -> str:
     if not value or not value.startswith("ENC:"):
         return value
     from cryptography.fernet import Fernet
     try:
         return Fernet(get_machine_key()).decrypt(value[4:].encode("ascii")).decode("utf-8")
-    except Exception:
+    except (ValueError, KeyError, TypeError) as e:
+        logger.debug(f"Decryption failed: {e}")
         return ""
 
-def load_config() -> Dict[str, Any]:
+
+def load_config() -> dict[str, Any]:
     if not CONFIG_FILE.exists():
         return {}
     try:
         raw = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
-        
-    cfg: Dict[str, Any] = {}
+
+    cfg: dict[str, Any] = {}
     if "api_keys" in raw:
         cfg["api_keys"] = {
             k: decrypt_value(v) if isinstance(v, str) and v.startswith("ENC:") else v
@@ -128,15 +138,16 @@ def load_config() -> Dict[str, Any]:
                 cfg["api_keys"][provider] = decrypt_value(v) if isinstance(v, str) and v.startswith("ENC:") else v
             else:
                 cfg[k] = v
-                
+
     cfg["role_assignments"] = raw.get("role_assignments", {
         "quick_coding": "quick_coding", "complex_coding": "complex_coding",
         "writing": "writing", "offline_local": "offline_local",
     })
     return cfg
 
+
 def save_config(cfg: dict) -> None:
-    raw: Dict[str, Any] = {}
+    raw: dict[str, Any] = {}
     for k, v in cfg.items():
         if k == "api_keys":
             raw["api_keys"] = {
@@ -147,15 +158,12 @@ def save_config(cfg: dict) -> None:
             raw[k] = encrypt_value(v) if v and not str(v).startswith("ENC:") else v
         else:
             raw[k] = v
-            
+
     try:
         CONFIG_FILE.write_text(json.dumps(raw, indent=2), encoding="utf-8")
     except (OSError, PermissionError, TypeError) as e:
         logger.warning(f"Config save failed: {e}")
 
-# ==============================================================================
-# Path Safety
-# ==============================================================================
 
 def is_sensitive_path(path) -> bool:
     name = Path(path).name.lower()
@@ -165,6 +173,7 @@ def is_sensitive_path(path) -> bool:
         if part.lower() in (".git", "__pycache__", "node_modules"):
             return True
     return False
+
 
 def validate_path(path: str, workspace: str) -> Path:
     ws = Path(workspace).resolve(strict=True)
@@ -176,13 +185,14 @@ def validate_path(path: str, workspace: str) -> Path:
 # Speech to Text
 # ==============================================================================
 
+
 class SpeechToText:
     """Handles audio transcription using the local microphone."""
     def __init__(self):
         self.recognizer = sr.Recognizer() if HAS_STT else None
         self.microphone = sr.Microphone() if HAS_STT else None
-        
-    def listen_and_transcribe(self, timeout: int = 5, phrase_time_limit: int = 10) -> Optional[str]:
+
+    def listen_and_transcribe(self, timeout: int = 5, phrase_time_limit: int = 10) -> str | None:
         if not HAS_STT or not self.recognizer:
             return None
         try:
@@ -190,24 +200,23 @@ class SpeechToText:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
             return self.recognizer.recognize_google(audio)
-        except sr.WaitTimeoutError:
+        except (sr.WaitTimeoutError, sr.UnknownValueError):
             return None
-        except sr.UnknownValueError:
-            return None
-        except Exception as e:
-            logger.warning(f"STT error: {e}")
+        except OSError as e:
+            logger.warning(f"STT hardware error: {e}")
             return None
 
 # ==============================================================================
 # Diagnostic Brain (Tier 0: ONNX SmolLM)
 # ==============================================================================
 
+
 class DiagnosticBrain:
     """Local ONNX SmolLM wrapper for forensic compression. Auto-downloads if missing."""
     MODEL_URL = "https://huggingface.co/HuggingFaceTB/smollm-135M-instruct-v0.2-onnx/resolve/main/onnx/model.onnx"
     MODEL_NAME = "smollm-135m-diagnostic.onnx"
-    
-    def __init__(self, models_dir: Optional[Path] = None):
+
+    def __init__(self, models_dir: Path | None = None):
         self.models_dir = models_dir or (BASE_DIR / "models")
         self.session = None
         self._lock = threading.Lock()
@@ -226,7 +235,7 @@ class DiagnosticBrain:
             "loaded": self.is_ready
         }
 
-    def ensure_model(self, progress_callback: Optional[Callable[[float], None]] = None) -> bool:
+    def ensure_model(self, progress_callback: Callable[[float], None] | None = None) -> bool:
         """Checks for model, downloads if missing. Returns True if ready."""
         model_path = self.models_dir / self.MODEL_NAME
         if model_path.exists() and model_path.stat().st_size > 10_000_000:
@@ -255,12 +264,16 @@ class DiagnosticBrain:
             self._download_status = "ready"
             self._load_model()
             return True
-        except Exception as e:
+        except requests.RequestException as e:
             logger.error(f"SmolLM download failed: {e}")
             self._download_status = "failed"
             return False
+        except OSError as e:
+            logger.error(f"SmolLM file write failed: {e}")
+            self._download_status = "failed"
+            return False
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         with self._lock:
             if self.session:
                 return
@@ -268,12 +281,12 @@ class DiagnosticBrain:
             if not model_path.exists():
                 return
             try:
-                providers = ["CPUExecutionProvider"]
+                providers: list[str] = ["CPUExecutionProvider"]
                 if sys.platform == "win32" and "DmlExecutionProvider" in ort.get_available_providers():
                     providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                 self.session = ort.InferenceSession(str(model_path), providers=providers)
                 logger.info(f"DiagnosticBrain loaded via {providers[0]}")
-            except Exception as e:
+            except ort.OrtException as e:
                 logger.warning(f"DiagnosticBrain failed to load ONNX session: {e}")
 
     def compress_diagnostics(self, raw_data: str) -> str:
@@ -291,28 +304,29 @@ class DiagnosticBrain:
 # RAG (Local Vector Index)
 # ==============================================================================
 
+
 class RAGIndex:
-    DIM = 2048
-    CHUNK_LINES = 60
-    SCORE_FLOOR = 0.02
-    MAX_FILE_SIZE = 1_000_000
-    TEXT_EXTS = {
+    DIM: Final[int] = 2048
+    CHUNK_LINES: Final[int] = 60
+    SCORE_FLOOR: Final[float] = 0.02
+    MAX_FILE_SIZE: Final[int] = 1_000_000
+    TEXT_EXTS: Final[frozenset[str]] = frozenset({
         ".py", ".js", ".ts", ".html", ".css", ".md", ".txt", ".json",
         ".yml", ".yaml", ".toml", ".sh", ".csv", ".xml", ".sql",
-    }
-    IGNORE_DIRS = {
+    })
+    IGNORE_DIRS: Final[frozenset[str]] = frozenset({
         "node_modules", "__pycache__", "libs", "dist", "build",
         "site-packages", ".venv", "venv",
-    }
+    })
 
     def __init__(self, workspace: str) -> None:
         self.workspace = Path(workspace)
         self.index_dir = self.workspace / ".red_tongue_index"
         self._lock = threading.RLock()
-        self._chunks: List[dict] = []
+        self._chunks: list[dict] = []
         self._matrix = None
         self._dirty = False
-        
+
         if _np is None:
             logger.warning("numpy unavailable — RAG disabled.")
         elif self._try_load():
@@ -357,7 +371,7 @@ class RAGIndex:
             logger.warning(f"RAG save failed: {e}")
 
     @staticmethod
-    def _tokens(text: str) -> List[str]:
+    def _tokens(text: str) -> list[str]:
         return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
 
     def _embed(self, text: str):
@@ -386,7 +400,7 @@ class RAGIndex:
                 except OSError:
                     continue
 
-    def _chunk_file(self, path: Path) -> List[dict]:
+    def _chunk_file(self, path: Path) -> list[dict]:
         rel = path.relative_to(self.workspace).as_posix()
         try:
             if path.stat().st_size > self.MAX_FILE_SIZE:
@@ -401,7 +415,7 @@ class RAGIndex:
                 chunks.append({"path": rel, "text": piece, "line": start + 1})
         return chunks
 
-    def _build_matrix(self, chunks: List[dict]):
+    def _build_matrix(self, chunks: list[dict]):
         if _np is None:
             return None
         if not chunks:
@@ -412,7 +426,7 @@ class RAGIndex:
         if _np is None:
             return
         with self._lock:
-            chunks: List[dict] = []
+            chunks: list[dict] = []
             for f in self._iter_workspace_files():
                 chunks.extend(self._chunk_file(f))
             self._chunks = chunks
@@ -424,10 +438,10 @@ class RAGIndex:
     def _safe_reindex(self) -> None:
         try:
             self.reindex()
-        except Exception as e:
+        except (OSError, ValueError, TypeError) as e:
             logger.warning(f"RAG reindex failed: {e}")
 
-    def query(self, text: str, top_k: int = 3) -> List[dict]:
+    def query(self, text: str, top_k: int = 3) -> list[dict]:
         with self._lock:
             if _np is None or self._matrix is None or not self._chunks:
                 return []
@@ -467,8 +481,9 @@ class RAGIndex:
 # TTS (Kokoro)
 # ==============================================================================
 
+
 class KokoroTTS:
-    ASSETS = {
+    ASSETS: Final[dict[str, str]] = {
         "kokoro-v1.0.onnx": (
             "https://github.com/thewh1teagle/kokoro-onnx/releases"
             "/download/model-files/kokoro-v1.0.onnx"
@@ -478,11 +493,11 @@ class KokoroTTS:
             "/download/model-files/voices-v1.0.bin"
         ),
     }
-    VOICE_ALIASES = {"af": "af-heart", "am": "am-adam", "bf": "bf-emma", "bm": "bm-george"}
+    VOICE_ALIASES: Final[dict[str, str]] = {"af": "af-heart", "am": "am-adam", "bf": "bf-emma", "bm": "bm-george"}
 
-    def __init__(self, models_dir: Optional[Path] = None) -> None:
+    def __init__(self, models_dir: Path | None = None) -> None:
         self.models_dir = Path(models_dir) if models_dir else BASE_DIR / "models"
-        self._engine = None
+        self._engine: Any = None
         self._lock = threading.Lock()
 
     def _download(self, name: str) -> bool:
@@ -505,7 +520,7 @@ class KokoroTTS:
             logger.error(f"TTS download '{name}' failed: {e}")
             return False
 
-    def _ensure_engine(self):
+    def _ensure_engine(self) -> Any:
         with self._lock:
             if self._engine is not None:
                 return self._engine
@@ -520,7 +535,7 @@ class KokoroTTS:
             return self._engine
 
     @classmethod
-    def _voice_candidates(cls, voice: str) -> List[str]:
+    def _voice_candidates(cls, voice: str) -> list[str]:
         v = (voice or "af").strip().lower()
         v = cls.VOICE_ALIASES.get(v, v)
         if "-" not in v and "_" not in v:
@@ -532,7 +547,7 @@ class KokoroTTS:
         return out
 
     @staticmethod
-    def _split_text(text: str, limit: int = 1500) -> List[str]:
+    def _split_text(text: str, limit: int = 1500) -> list[str]:
         text = (text or "").strip()
         if len(text) <= limit:
             return [text] if text else []
@@ -551,17 +566,19 @@ class KokoroTTS:
             parts.append(cur)
         return parts
 
-    async def generate_wav(self, text: str, voice: str = "af") -> Tuple[Optional[bytes], str]:
+    async def generate_wav(self, text: str, voice: str = "af") -> tuple[bytes | None, str]:
         if not text or not str(text).strip():
             return None, "No text provided."
+
         def _synth() -> bytes:
             import numpy as np
             import soundfile as sf
             engine = self._ensure_engine()
-            last_err = None
+            last_err: BaseException | None = None
             for cand in self._voice_candidates(voice):
                 try:
-                    pieces, sr = [], None
+                    pieces: list[np.ndarray] = []
+                    sr: int | None = None
                     for seg in self._split_text(str(text)):
                         audio, sr = engine.create(seg, voice=cand, speed=1.0, lang="en-us")
                         pieces.append(np.asarray(audio, dtype=np.float32))
@@ -571,19 +588,20 @@ class KokoroTTS:
                     buf = io.BytesIO()
                     sf.write(buf, full, sr, format="WAV")
                     return buf.getvalue()
-                except Exception as e:
+                except (RuntimeError, ValueError, TypeError) as e:
                     last_err = e
                     continue
             raise RuntimeError(f"TTS failed: {last_err}")
         try:
             wav = await asyncio.to_thread(_synth)
             return wav, "ok"
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             return None, str(e)
 
 # ==============================================================================
 # ToolLayer
 # ==============================================================================
+
 
 class ToolLayer:
     DESTRUCTIVE_PATTERNS = ("rm -rf /", "rm -rf /*", "mkfs.", "format c:", "shutdown ", "reboot ", ":(){:|:&};:")
@@ -601,7 +619,7 @@ class ToolLayer:
         self.brain = DiagnosticBrain()
         logger.info(f"ToolLayer ready — workspace: {self.workspace}")
 
-    def _safe_path(self, path: str) -> Tuple[Optional[Path], Optional[dict]]:
+    def _safe_path(self, path: str) -> tuple[Path | None, dict | None]:
         try:
             p = validate_path(path, self.workspace)
         except (ValueError, OSError) as e:
@@ -633,8 +651,8 @@ class ToolLayer:
             p.write_text(data, encoding="utf-8")
             try:
                 self.rag.index_file(path)
-            except Exception:
-                pass
+            except (OSError, ValueError, TypeError) as e:
+                logger.debug(f"RAG index after write failed: {e}")
             return {"status": "success", "path": path, "bytes": len(data.encode("utf-8"))}
         except OSError as e:
             return {"status": "error", "error": str(e)}
@@ -645,7 +663,7 @@ class ToolLayer:
             return err
         assert p is not None
         try:
-            results: List[str] = []
+            results: list[str] = []
             for root, dirs, files in os.walk(p):
                 dirs[:] = [
                     d for d in dirs
@@ -756,7 +774,7 @@ class ToolLayer:
         compressed = self.brain.compress_diagnostics(stderr_text)
         return {"status": "success", "output": compressed}
 
-    def execute(self, name: str, args: Optional[dict]) -> dict:
+    def execute(self, name: str, args: dict | None) -> dict:
         args = args or {}
         try:
             if name == "run_shell":
@@ -785,6 +803,7 @@ class ToolLayer:
 # Failover Stack
 # ==============================================================================
 
+
 class FailoverEntry:
     MAX_ERROR_LEN = 200
 
@@ -810,18 +829,19 @@ class FailoverEntry:
             "last_error": self.last_error[:self.MAX_ERROR_LEN],
         }
 
+
 class FailoverStack:
     COOLDOWN_SECONDS = 120.0
     MAX_ERRORS = 4
 
-    def __init__(self, entries: Optional[List[FailoverEntry]] = None) -> None:
-        self.entries: List[FailoverEntry] = list(entries or [])
+    def __init__(self, entries: list[FailoverEntry] | None = None) -> None:
+        self.entries: list[FailoverEntry] = list(entries or [])
         self._lock = threading.Lock()
 
     @classmethod
-    def load_config(cls, cfg: Optional[dict] = None) -> "FailoverStack":
+    def load_config(cls, cfg: dict | None = None) -> "FailoverStack":
         cfg = cfg if cfg is not None else load_config()
-        entries: List[FailoverEntry] = []
+        entries: list[FailoverEntry] = []
         api_keys = cfg.get("api_keys", {})
         role_assignments = cfg.get("role_assignments", {})
         if not role_assignments:
@@ -844,13 +864,13 @@ class FailoverStack:
             ))
         return cls(entries)
 
-    def ordered(self) -> List[FailoverEntry]:
+    def ordered(self) -> list[FailoverEntry]:
         with self._lock:
             now = time.time()
             live = [e for e in self.entries if not e.dead and e.cooldown_until <= now]
             return sorted(live, key=lambda e: e.priority)
 
-    def next_entry(self) -> Optional[FailoverEntry]:
+    def next_entry(self) -> FailoverEntry | None:
         ordered = self.ordered()
         return ordered[0] if ordered else None
 
@@ -889,6 +909,7 @@ class FailoverStack:
 # AgentSwarm
 # ==============================================================================
 
+
 class AgentSwarm:
     TOOL_SPECS = [
         {"type": "function", "function": {"name": "list_directory", "description": "List files.", "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Sub-dir"}}, "required": []}}},
@@ -912,10 +933,10 @@ class AgentSwarm:
         '- Refuse unsafe requests.\n\nOUTPUT: Concise, technical, Markdown.'
     )
 
-    def __init__(self, tool_layer: ToolLayer, failover_config: Optional[FailoverStack] = None) -> None:
+    def __init__(self, tool_layer: ToolLayer, failover_config: FailoverStack | None = None) -> None:
         self.tool_layer = tool_layer
         self.failover = failover_config if failover_config is not None else FailoverStack.load_config()
-        self._clients: Dict[str, Any] = {}
+        self._clients: dict[str, Any] = {}
         self._no_tools: set = set()
         self.reset_clients()
 
@@ -940,11 +961,11 @@ class AgentSwarm:
         self.failover = FailoverStack.load_config()
         self.reset_clients()
 
-    def _build_messages(self, message: str, history: Optional[list], rag_context: str, custom_system_prompt: str = "") -> List[dict]:
+    def _build_messages(self, message: str, history: list | None, rag_context: str, custom_system_prompt: str = "") -> list[dict]:
         sys_content = self.SYSTEM_PROMPT
         if custom_system_prompt and custom_system_prompt.strip():
             sys_content = custom_system_prompt.strip()
-        msgs: List[dict] = [{"role": "system", "content": sys_content}]
+        msgs: list[dict] = [{"role": "system", "content": sys_content}]
         if rag_context and rag_context.strip():
             msgs.append({"role": "system", "content": "RAG context:\n\n" + rag_context})
         hist = [
@@ -957,7 +978,7 @@ class AgentSwarm:
         msgs.append({"role": "user", "content": message})
         return msgs
 
-    async def run_main_agent(self, message: str, history: Optional[list] = None, autopilot: bool = True, effort: str = "medium", response_queue=None, rag_context: str = "", disable_tools: bool = False, custom_system_prompt: str = ""):
+    async def run_main_agent(self, message: str, history: list | None = None, autopilot: bool = True, effort: str = "medium", response_queue=None, rag_context: str = "", disable_tools: bool = False, custom_system_prompt: str = ""):
         message = (message or "").strip()
         if not message:
             yield json.dumps({"type": "error", "content": "Empty message."})
@@ -978,7 +999,7 @@ class AgentSwarm:
                 continue
             use_tools = not disable_tools and entry.name not in self._no_tools
             try:
-                kwargs: Dict[str, Any] = {"model": entry.model, "messages": messages, "stream": True}
+                kwargs: dict[str, Any] = {"model": entry.model, "messages": messages, "stream": True}
                 if use_tools:
                     kwargs["tools"] = self.TOOL_SPECS
                 stream = await client.chat.completions.create(**kwargs)
@@ -990,8 +1011,8 @@ class AgentSwarm:
                 self.failover.report_failure(entry, err)
                 yield json.dumps({"type": "stream", "content": f"\n\n> ⚡ `{entry.name}` failed ({err[:140]}).\n\n"})
                 continue
-            content_parts: List[str] = []
-            tool_calls: Dict[int, dict] = {}
+            content_parts: list[str] = []
+            tool_calls: dict[int, dict] = {}
             try:
                 async for chunk in stream:
                     choices = getattr(chunk, "choices", None)

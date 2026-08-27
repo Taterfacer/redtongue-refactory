@@ -3,29 +3,36 @@
 redtongue_player.py
 Native PyQt6 Media Suite for the RedTongue Refactory.
 Supports MP3, MP4, and common audio/video formats via OS-native QtMultimedia.
-Includes playlist management, Fisher-Yates shuffle, drag-and-drop, and 
+Includes playlist management, Fisher-Yates shuffle, drag-and-drop, and
 persistent JSON-based library.
 Rule 7 Compliant: No external codec packs, no registry scanning, no bloat.
 """
-import os
-import sys
 import json
 import random
 import shutil
-import tempfile
-import threading
+import sys
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider, QLabel, 
-    QFileDialog, QListWidget, QListWidgetItem, QSplitter, QFrame, 
-    QSizePolicy, QMenu, QApplication, QShortcut, QMessageBox
-)
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QKeySequence
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
-from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal, QEvent
-from PyQt6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent, QMimeData
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QShortcut,
+    QSlider,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from mutagen import File as MutagenFile
@@ -93,8 +100,8 @@ def load_json(path: Path, default: Any = None) -> Any:
 class ShuffleQueue:
     """Manages shuffle state without repeating tracks."""
     def __init__(self):
-        self._unplayed: List[int] = []
-        self._history: List[int] = []
+        self._unplayed: list[int] = []
+        self._history: list[int] = []
         self._size: int = 0
 
     def reset(self, size: int):
@@ -151,18 +158,18 @@ class MediaLibrary:
     """Lightweight, JSON-persisted media metadata cache."""
     def __init__(self):
         self.data = load_json(LIBRARY_FILE, {"tracks": [], "folders": []})
-        self.tracks: List[Dict[str, Any]] = self.data.get("tracks", [])
-        self.folders: List[str] = self.data.get("folders", [])
+        self.tracks: list[dict[str, Any]] = self.data.get("tracks", [])
+        self.folders: list[str] = self.data.get("folders", [])
 
     def save(self):
         atomic_write_json(LIBRARY_FILE, {"tracks": self.tracks, "folders": self.folders})
 
-    def _extract_metadata(self, path: Path) -> Optional[Dict[str, Any]]:
+    def _extract_metadata(self, path: Path) -> dict[str, Any] | None:
         try:
             stat = path.stat()
         except Exception:
             return None
-        
+
         track = {
             "path": str(path),
             "title": path.stem,
@@ -175,14 +182,14 @@ class MediaLibrary:
             "file_size": stat.st_size,
             "ext": path.suffix.lower(),
         }
-        
+
         if HAS_MUTAGEN and path.suffix.lower() in AUDIO_EXTS:
             try:
                 mfile = MutagenFile(str(path))
                 if mfile is not None:
                     def get(*keys):
                         for k in keys:
-                            if k in mfile and mfile[k]: return str(mfile[k][0])
+                            if mfile.get(k): return str(mfile[k][0])
                         return None
                     title = get("title", "TIT2")
                     artist = get("artist", "TPE1")
@@ -200,7 +207,7 @@ class MediaLibrary:
         folder_path = Path(folder)
         if not folder_path.exists(): return 0
         if folder not in self.folders: self.folders.append(folder)
-        
+
         existing = {t["path"] for t in self.tracks}
         added = 0
         for ext in ALL_EXTS:
@@ -232,9 +239,9 @@ class PlaylistWidget(QListWidget):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setStyleSheet(f"""
-            QListWidget {{ 
-                background-color: {C_BG}; color: {C_WHITE}; 
-                border: 1px solid {C_BORDER}; border-radius: 4px; 
+            QListWidget {{
+                background-color: {C_BG}; color: {C_WHITE};
+                border: 1px solid {C_BORDER}; border-radius: 4px;
                 font-size: 12px; outline: none;
             }}
             QListWidget::item {{ padding: 6px; border-bottom: 1px solid {C_BORDER}; }}
@@ -290,10 +297,10 @@ class RTButton(QPushButton):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.setStyleSheet(f"""
-            QPushButton {{ 
-                background-color: {C_INPUT}; color: {C_WHITE}; 
-                border: 1px solid {C_BORDER}; border-radius: 4px; 
-                padding: 6px 12px; font-weight: bold; 
+            QPushButton {{
+                background-color: {C_INPUT}; color: {C_WHITE};
+                border: 1px solid {C_BORDER}; border-radius: 4px;
+                padding: 6px 12px; font-weight: bold;
             }}
             QPushButton:hover {{ background-color: #2a2a2a; border-color: #444; }}
             QPushButton#Primary {{ background-color: {C_RED}; border-color: {C_RED_HOVER}; }}
@@ -304,14 +311,14 @@ class RTSlider(QSlider):
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
         self.setStyleSheet(f"""
-            QSlider::groove:horizontal {{ 
-                border: 1px solid {C_BORDER}; height: 6px; 
-                background: {C_INPUT}; border-radius: 3px; 
+            QSlider::groove:horizontal {{
+                border: 1px solid {C_BORDER}; height: 6px;
+                background: {C_INPUT}; border-radius: 3px;
             }}
             QSlider::sub-page:horizontal {{ background: {C_RED}; border-radius: 3px; }}
-            QSlider::handle:horizontal {{ 
-                background: {C_WHITE}; border: 1px solid {C_RED}; 
-                width: 12px; height: 12px; margin: -3px 0; border-radius: 6px; 
+            QSlider::handle:horizontal {{
+                background: {C_WHITE}; border: 1px solid {C_RED};
+                width: 12px; height: 12px; margin: -3px 0; border-radius: 6px;
             }}
         """)
 
@@ -320,30 +327,30 @@ class RTSlider(QSlider):
 # ==============================================================================
 class MediaSuiteWidget(QWidget):
     """Embeddable Media Player Suite."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.playlist: List[Path] = []
+        self.playlist: list[Path] = []
         self.current_index = -1
         self.shuffle_mode = False
         self.repeat_mode = 0 # 0: Off, 1: One, 2: All
         self._seeking = False
-        
+
         # Config
         self.config = load_json(CONFIG_FILE, {"volume": 80, "shuffle": False, "repeat": 0})
         self.shuffle_mode = self.config.get("shuffle", False)
         self.repeat_mode = self.config.get("repeat", 0)
-        
+
         # Player Engine
         self.audio_output = QAudioOutput()
         self.audio_output.setVolume(self.config.get("volume", 80) / 100.0)
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio_output)
-        
+
         # Helpers
         self.shuffle_queue = ShuffleQueue()
         self.library = MediaLibrary()
-        
+
         self._build_ui()
         self._setup_shortcuts()
         self._load_saved_playlist()
@@ -370,7 +377,7 @@ class MediaSuiteWidget(QWidget):
         self.time_current = QLabel("0:00")
         self.time_current.setStyleSheet(f"color: {C_GRAY}; font-size: 11px; min-width: 40px;")
         seek_layout.addWidget(self.time_current)
-        
+
         self.seek_slider = RTSlider(Qt.Orientation.Horizontal)
         self.seek_slider.setRange(0, 0)
         self.seek_slider.setEnabled(False)
@@ -378,7 +385,7 @@ class MediaSuiteWidget(QWidget):
         self.seek_slider.sliderReleased.connect(self._on_seek_released)
         self.seek_slider.sliderMoved.connect(self._seek)
         seek_layout.addWidget(self.seek_slider, stretch=1)
-        
+
         self.time_total = QLabel("0:00")
         self.time_total.setStyleSheet(f"color: {C_GRAY}; font-size: 11px; min-width: 40px;")
         seek_layout.addWidget(self.time_total)
@@ -389,66 +396,66 @@ class MediaSuiteWidget(QWidget):
         self.btn_prev = RTButton("⏮")
         self.btn_prev.clicked.connect(self._play_previous)
         transport.addWidget(self.btn_prev)
-        
+
         self.btn_play = RTButton("▶ Play")
         self.btn_play.setObjectName("Primary")
         self.btn_play.clicked.connect(self._toggle_play)
         transport.addWidget(self.btn_play)
-        
+
         self.btn_next = RTButton("⏭")
         self.btn_next.clicked.connect(self._play_next)
         transport.addWidget(self.btn_next)
-        
+
         transport.addStretch()
-        
+
         self.btn_shuffle = RTButton("🔀")
         self.btn_shuffle.setCheckable(True)
         self.btn_shuffle.setChecked(self.shuffle_mode)
         self.btn_shuffle.clicked.connect(self._toggle_shuffle)
         transport.addWidget(self.btn_shuffle)
-        
+
         self.btn_repeat = RTButton("🔁")
         self.btn_repeat.setCheckable(True)
         self.btn_repeat.setChecked(self.repeat_mode > 0)
         self.btn_repeat.clicked.connect(self._cycle_repeat)
         transport.addWidget(self.btn_repeat)
-        
+
         layout.addLayout(transport)
 
         # Bottom: Playlist & Actions
         bottom_splitter = QSplitter(Qt.Orientation.Vertical)
-        
+
         # Playlist
         self.playlist_widget = PlaylistWidget(self)
         bottom_splitter.addWidget(self.playlist_widget)
-        
+
         # Action Buttons
         action_layout = QHBoxLayout()
         self.btn_open = RTButton("Open Files")
         self.btn_open.clicked.connect(self._open_files)
         action_layout.addWidget(self.btn_open)
-        
+
         self.btn_folder = RTButton("Open Folder")
         self.btn_folder.clicked.connect(self._open_folder)
         action_layout.addWidget(self.btn_folder)
-        
+
         self.btn_clear = RTButton("Clear")
         self.btn_clear.clicked.connect(self.clear_playlist)
         action_layout.addWidget(self.btn_clear)
-        
+
         action_layout.addStretch()
-        
+
         self.vol_slider = RTSlider(Qt.Orientation.Horizontal)
         self.vol_slider.setRange(0, 100)
         self.vol_slider.setValue(int(self.audio_output.volume() * 100))
         self.vol_slider.setFixedWidth(100)
         self.vol_slider.valueChanged.connect(self._set_volume)
         action_layout.addWidget(self.vol_slider)
-        
+
         action_widget = QWidget()
         action_widget.setLayout(action_layout)
         bottom_splitter.addWidget(action_widget)
-        
+
         bottom_splitter.setSizes([200, 40])
         layout.addWidget(bottom_splitter)
 
@@ -478,19 +485,19 @@ class MediaSuiteWidget(QWidget):
             found = [f for f in Path(folder).rglob("*") if f.suffix.lower() in ALL_EXTS]
             if found: self._add_files(sorted(found))
 
-    def _add_files(self, paths: List[Path]):
+    def _add_files(self, paths: list[Path]):
         for p in paths:
             if p not in self.playlist:
                 self.playlist.append(p)
                 item = QListWidgetItem(p.name)
                 item.setToolTip(str(p))
                 self.playlist_widget.addItem(item)
-        
+
         if self.shuffle_mode: self.shuffle_queue.sync(len(self.playlist))
         if self.current_index == -1 and self.playlist: self._play_index(0)
         self._save_playlist()
 
-    def handle_playlist_drop(self, paths: List[Path]):
+    def handle_playlist_drop(self, paths: list[Path]):
         self._add_files(paths)
 
     def _play_index(self, index: int):
@@ -633,15 +640,15 @@ if __name__ == "__main__":
     app.setStyleSheet(f"""
         QMainWindow, QWidget {{ background-color: {C_BG}; color: {C_WHITE}; font-family: 'Segoe UI', sans-serif; }}
     """)
-    
+
     window = QWidget()
     window.setWindowTitle(APP_NAME)
     window.resize(1000, 700)
     layout = QVBoxLayout(window)
     layout.setContentsMargins(10, 10, 10, 10)
-    
+
     player = MediaSuiteWidget()
     layout.addWidget(player)
-    
+
     window.show()
     sys.exit(app.exec())
