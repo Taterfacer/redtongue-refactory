@@ -2,9 +2,11 @@
 """backend.py
 
 Core engine layer for the RedTongue Refactory.
+
 Manages AI Swarm, ToolLayer, RAG, TTS, STT, Config, and the
 DiagnosticBrain (ONNX SmolLM) for forensic compression.
 """
+# NOTE: This file is imported as a module; shebang retained for direct execution support.
 
 from __future__ import annotations
 
@@ -28,9 +30,9 @@ from typing import Any, ClassVar, Final
 import requests
 
 try:
-    import numpy as np
+    import numpy as np  # type: ignore[import-untyped]
 except ImportError:
-    np = None
+    np = None  # type: ignore[assignment]
 
 try:
     import speech_recognition as sr
@@ -83,6 +85,11 @@ AI_ROLE_PRESETS: dict[str, dict] = {
 
 @lru_cache(maxsize=1)
 def get_machine_key() -> bytes:
+    """Derive a stable machine-specific encryption key using PBKDF2-SHA256.
+
+    Returns:
+        bytes: URL-safe base64-encoded 32-byte key derived from machine identity.
+    """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -101,6 +108,14 @@ def get_machine_key() -> bytes:
 
 
 def encrypt_value(value: str) -> str:
+    """Encrypt a string value using Fernet symmetric encryption.
+
+    Args:
+        value: The plaintext string to encrypt.
+
+    Returns:
+        str: Encrypted value prefixed with 'ENC:', or original if empty.
+    """
     if not value:
         return value
     from cryptography.fernet import Fernet
@@ -111,6 +126,14 @@ def encrypt_value(value: str) -> str:
 
 
 def decrypt_value(value: str) -> str:
+    """Decrypt a Fernet-encrypted value.
+
+    Args:
+        value: The encrypted string (must start with 'ENC:').
+
+    Returns:
+        str: Decrypted plaintext, or empty string on failure.
+    """
     if not value or not value.startswith("ENC:"):
         return value
     from cryptography.fernet import Fernet
@@ -125,6 +148,11 @@ def decrypt_value(value: str) -> str:
 
 
 def load_config() -> dict[str, Any]:
+    """Load configuration from disk, decrypting any encrypted API keys.
+
+    Returns:
+        dict[str, Any]: Configuration dictionary with decrypted keys.
+    """
     if not CONFIG_FILE.exists():
         return {}
     try:
@@ -164,6 +192,11 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(cfg: dict) -> None:
+    """Save configuration to disk, encrypting sensitive values.
+
+    Args:
+        cfg: Configuration dictionary to persist.
+    """
     raw: dict[str, Any] = {}
     for k, v in cfg.items():
         if k == "api_keys":
@@ -184,7 +217,15 @@ def save_config(cfg: dict) -> None:
         logger.warning("Config save failed: %s", e)
 
 
-def is_sensitive_path(path: str) -> bool:
+def is_sensitive_path(path: Path | str) -> bool:
+    """Check if a path points to sensitive files or directories.
+
+    Args:
+        path: File path to check.
+
+    Returns:
+        bool: True if path is sensitive, False otherwise.
+    """
     name = Path(path).name.lower()
     if name in (".env", ".gitconfig", "id_rsa") or name.startswith(".env"):
         return True
@@ -195,6 +236,19 @@ def is_sensitive_path(path: str) -> bool:
 
 
 def validate_path(path: str, workspace: str) -> Path:
+    """Validate that a path is safely contained within the workspace.
+
+    Args:
+        path: Relative or absolute path to validate.
+        workspace: Base workspace directory.
+
+    Returns:
+        Path: Resolved absolute path.
+
+    Raises:
+        ValueError: If path escapes workspace boundary.
+        OSError: If workspace does not exist.
+    """
     ws = Path(workspace).resolve(strict=True)
     p = (ws / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
     p.relative_to(ws)
@@ -515,6 +569,26 @@ class RAGIndex:
         except (OSError, ValueError, TypeError) as e:
             logger.warning("RAG reindex failed: %s", e)
 
+    def index_file(self, path: str) -> None:
+        """Index a single file in the RAG system.
+
+        Args:
+            path: Relative path to the file within workspace.
+        """
+        if np is None:
+            return
+        p = self.workspace / path
+        if not p.exists() or not p.is_file():
+            return
+        with self._lock:
+            new_chunks = self._chunk_file(p)
+            # Remove old chunks for this file
+            self._chunks = [c for c in self._chunks if c["path"] != path]
+            self._chunks.extend(new_chunks)
+            self._matrix = self._build_matrix(self._chunks)
+            self._save()
+            self._dirty = False
+
     def query(self, text: str, top_k: int = 3) -> list[dict]:
         with self._lock:
             if np is None or self._matrix is None or not self._chunks:
@@ -608,11 +682,13 @@ class KokoroTTS:
                 return self._engine
             onnx_path = self.models_dir / "kokoro-v1.0.onnx"
             voices_path = self.models_dir / "voices-v1.0.bin"
-            if not (onnx_path.exists() and voices_path.exists()):
-                if not (
+            models_exist = onnx_path.exists() and voices_path.exists()
+            if not models_exist:
+                downloaded = (
                     self._download("kokoro-v1.0.onnx")
                     and self._download("voices-v1.0.bin")
-                ):
+                )
+                if not downloaded:
                     raise RuntimeError(
                         f"TTS models missing. Place in: {self.models_dir}"
                     )
@@ -723,6 +799,14 @@ class ToolLayer:
         logger.info("ToolLayer ready — workspace: %s", self.workspace)
 
     def _safe_path(self, path: str) -> tuple[Path | None, dict | None]:
+        """Validate and sanitize a file path for safe access.
+
+        Args:
+            path: Relative or absolute path to validate.
+
+        Returns:
+            Tuple of (resolved Path, error dict) where error is None on success.
+        """
         try:
             p = validate_path(path, self.workspace)
         except (ValueError, OSError) as e:
@@ -732,6 +816,14 @@ class ToolLayer:
         return p, None
 
     def read_file(self, path: str) -> dict:
+        """Read a file from the workspace with security validation.
+
+        Args:
+            path: Relative path within workspace.
+
+        Returns:
+            dict: Status dictionary with 'output' key on success, 'error' on failure.
+        """
         p, err = self._safe_path(path)
         if err:
             return err
@@ -747,6 +839,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def write_file(self, path: str, content: str) -> dict:
+        """Write content to a file in the workspace with security validation.
+
+        Args:
+            path: Relative path within workspace.
+            content: Text content to write.
+
+        Returns:
+            dict: Status dictionary with file metadata on success.
+        """
         p, err = self._safe_path(path)
         if err:
             return err
@@ -756,7 +857,7 @@ class ToolLayer:
             data = str(content)
             p.write_text(data, encoding="utf-8")
             try:
-                self.rag.index_file(path)
+                self.rag.index_file(str(p.relative_to(self.workspace)))
             except (OSError, ValueError, TypeError) as e:
                 logger.debug("RAG index after write failed: %s", e)
             return {
@@ -768,6 +869,14 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def list_directory(self, path: str = ".") -> dict:
+        """List files in a workspace directory, excluding sensitive items.
+
+        Args:
+            path: Relative path within workspace (default: root).
+
+        Returns:
+            dict: Status dictionary with 'output' list of relative file paths.
+        """
         p, err = self._safe_path(path)
         if err:
             return err
@@ -782,7 +891,7 @@ class ToolLayer:
                 ]
                 for f in files:
                     rel = os.path.relpath(os.path.join(root, f), self.workspace)
-                    if is_sensitive_path(Path(rel)):
+                    if is_sensitive_path(rel):
                         continue
                     results.append(rel.replace("\\", "/"))
             results.sort()
@@ -1358,10 +1467,11 @@ class AgentSwarm:
                                     acc["arguments"] += fn.arguments
             except Exception as e:
                 self.failover.report_failure(entry, str(e))
+                err_msg = str(e)[:140]
                 yield json.dumps(
                     {
                         "type": "stream",
-                        "content": f"\n\n>  Stream broke ({str(e)[:140]}). Retrying…\n\n",
+                        "content": f"\n\n>  Stream broke ({err_msg}). Retrying…\n\n",
                     }
                 )
                 if content_parts:
@@ -1373,15 +1483,15 @@ class AgentSwarm:
             rounds += 1
             full_text = "".join(content_parts)
             if tool_calls:
-                calls = []
+                calls: list[dict[str, Any]] = []
                 for i, tc in sorted(tool_calls.items()):
                     calls.append(
                         {
-                            "id": tc["id"] or f"call_{i}",
+                            "id": tc.get("id") or f"call_{i}",
                             "type": "function",
                             "function": {
-                                "name": tc["name"] or "unknown",
-                                "arguments": tc["arguments"] or "{}",
+                                "name": tc.get("name") or "unknown",
+                                "arguments": tc.get("arguments") or "{}",
                             },
                         }
                     )
@@ -1393,9 +1503,12 @@ class AgentSwarm:
                     }
                 )
                 for call in calls:
-                    name = call["function"]["name"]
+                    func_data = call.get("function", {})
+                    if not isinstance(func_data, dict):
+                        continue
+                    name = func_data.get("name", "unknown")
                     try:
-                        args = json.loads(call["function"]["arguments"])
+                        args = json.loads(func_data.get("arguments", "{}"))
                         if not isinstance(args, dict):
                             args = {}
                     except json.JSONDecodeError:

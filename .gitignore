@@ -12,16 +12,37 @@ venv/
 .env.local
 *.env.*
 
-# Logs and temp files
+# Logs
 *.log
-*.tmp
 
-# Editors
+# Editor
 .vscode/
 .idea/
+*.swp
+*.swo
+*.tmp
 
 # Build artifacts
 dist/
 build/
 target/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Dependencies
+node_modules/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# System
+.DS_Store
+Thumbs.db
 ```
