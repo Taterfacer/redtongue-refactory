@@ -545,12 +545,12 @@ class RefactoryMainWindow(QMainWindow):
 
         decks_menu = menubar.addMenu("&Decks")
         decks = [
-            ("Focus Studio", "RedTongue_Focus.py"),
-            ("Crucible (Compiler)", "RedTongue_Crucible.py"),
-            ("Ripper (Downloader)", "RedTongue_Ripper.py"),
-            ("Alchemist (Converter)", "RedTongue_Alchemist.py"),
-            ("Maestro (Mastering)", "RedTongue_Maestro.py"),
-            ("PyLib (Packages)", "red_tongue_pylib_manager_v26.5.py"),
+            ("Focus Studio", "ui_focus.py"),
+            ("Crucible (Compiler)", "ui_crucible.py"),
+            ("Ripper (Downloader)", "ui_ripper.py"),
+            ("Alchemist (Converter)", "ui_alchemist.py"),
+            ("Maestro (Mastering)", "ui_alchemist.py"),
+            ("PyLib (Packages)", "ui_pylib.py"),
         ]
         for name, script in decks:
             action = QAction(name, self)
