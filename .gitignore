@@ -1,24 +1,13 @@
 ```
-# Compiled and build artifacts
-*.pyc
+# Python
 __pycache__/
-
-# Dependencies
-.venv/
-venv/
-node_modules/
-*.egg-info/
-dist/
-build/
-*.so
-*.dylib
-*.dll
+*.pyc
+*.pyo
+*.pyd
 
 # Logs and temp files
 *.log
 *.tmp
-*.swp
-*.swo
 
 # Environment
 .env
@@ -28,43 +17,18 @@ build/
 # Editors
 .vscode/
 .idea/
-*.pyc
-*.pyo
-*.pyd
-*.py~
-*.py.class
-*.class
-*.jar
-*.war
-*.ear
-*.o
-*.a
-*.obj
-*.out
-*.exe
-*.dll
-*.so
-*.dylib
-*.tar.gz
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
+
+# OS
+.DS_Store
+Thumbs.db
 ```

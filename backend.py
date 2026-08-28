@@ -37,6 +37,7 @@ import requests
 # Module-level embedding cache keyed by (text_hash, dim) to avoid caching bound methods
 _embedding_cache: dict[tuple[int, int], Any] = {}
 _EMBED_CACHE_MAX_SIZE = 256
+_embedding_cache_lock = threading.Lock()
 
 # Query size limit to bound memory for oversized inputs
 _QUERY_TEXT_LIMIT = 10000  # Max characters for query input
@@ -46,7 +47,7 @@ def _get_cached_embedding(text: str, dim: int) -> Any:
     """Generate or retrieve cached embedding vector using secure hash-based tokenization.
     
     Uses a module-level cache keyed by text hash and dimension to avoid issues with
-    caching bound methods. Enforces cache size limit.
+    caching bound methods. Enforces cache size limit with thread-safe eviction.
     """
     if np is None:
         msg = "NumPy is required for embeddings"
@@ -55,28 +56,28 @@ def _get_cached_embedding(text: str, dim: int) -> Any:
     # Create a hash key for the text to use in cache lookup
     text_hash = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16], 16)
     cache_key = (text_hash, dim)
+    with _embedding_cache_lock:
+        if cache_key in _embedding_cache:
+            return _embedding_cache[cache_key]
     
-    if cache_key in _embedding_cache:
-        return _embedding_cache[cache_key]
+        # Generate embedding
+        vec = np.zeros(dim, dtype=np.float32)
+        tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
+        for tok in tokens:
+            idx = int(hashlib.sha256(tok.encode("utf-8")).hexdigest()[:8], 16) % dim
+            vec[idx] += 1.0
+        norm = float(np.linalg.norm(vec))
+        if norm > 0:
+            vec /= norm
     
-    # Generate embedding
-    vec = np.zeros(dim, dtype=np.float32)
-    tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
-    for tok in tokens:
-        idx = int(hashlib.sha256(tok.encode("utf-8")).hexdigest()[:8], 16) % dim
-        vec[idx] += 1.0
-    norm = float(np.linalg.norm(vec))
-    if norm > 0:
-        vec /= norm
+        # Enforce cache size limit before adding new entry
+        if len(_embedding_cache) >= _EMBED_CACHE_MAX_SIZE:
+            # Remove oldest entry (first key)
+            first_key = next(iter(_embedding_cache))
+            del _embedding_cache[first_key]
     
-    # Enforce cache size limit before adding new entry
-    if len(_embedding_cache) >= _EMBED_CACHE_MAX_SIZE:
-        # Remove oldest entry (first key)
-        first_key = next(iter(_embedding_cache))
-        del _embedding_cache[first_key]
-    
-    _embedding_cache[cache_key] = vec
-    return vec
+        _embedding_cache[cache_key] = vec
+        return vec
 
 try:
     import numpy as np  # type: ignore[import-untyped]
