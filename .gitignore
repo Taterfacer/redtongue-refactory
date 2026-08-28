@@ -8,6 +8,7 @@ __pycache__/
 # Logs and temp files
 *.log
 *.tmp
+*.swp
 
 # Environment
 .env
@@ -27,8 +28,4 @@ node_modules/
 dist/
 build/
 target/
-
-# OS
-.DS_Store
-Thumbs.db
 ```

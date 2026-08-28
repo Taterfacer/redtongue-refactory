@@ -12,7 +12,8 @@ import sys
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QFileSystemModel, QProcess, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QProcess, Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QFileSystemModel
 from PyQt6.QtGui import (
     QAction,
     QColor,
