@@ -1,6 +1,3 @@
-<img width="512" height="512" alt="logo" src="https://github.com/user-attachments/assets/e96d4eb2-36c9-4e54-ba53-2e8c3661fb6c" />
-
-
 # RedTongue Refactory
 
 ![RedTongue Logo](logo.png)
@@ -346,7 +343,7 @@ This software includes integration with `yt_dlp` (YouTube-DL Plus), an open-sour
 
 ### Compatible Websites (Top 10)
 
-The yt_dlp integration supports **100+ websites**. Top supported platforms include:
+The yt_dlp integration supports **1000+ websites**. Top supported platforms include:
 
 1. **YouTube** (youtube.com) - Videos, playlists, channels, subtitles
 2. **Vimeo** (vimeo.com) - High-quality video downloads
@@ -360,7 +357,7 @@ The yt_dlp integration supports **100+ websites**. Top supported platforms inclu
 10. **Reddit** (reddit.com) - Video posts
 
 ### Full Compatibility List
-For the complete list of 100+ supported sites, visit:  
+For the complete list of 1000+ supported sites, visit:  
 https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 
 ### Implementation Details
