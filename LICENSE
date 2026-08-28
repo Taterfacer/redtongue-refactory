@@ -1,0 +1,49 @@
+PROPRIETARY LICENSE AGREEMENT
+
+Copyright (c) August 28, 2026 Joshua Alexander. All Rights Reserved.
+
+PROJECT: RedTongue Refactory
+
+NOTICE TO USER:
+This software is NOT free software. It is the exclusive intellectual property 
+of Joshua Alexander ("Owner"). This software is provided for licensed use only 
+under the terms strictly defined by the Owner.
+
+TERMS OF USE:
+1. OWNERSHIP: The software, including all source code, object code, user interface, 
+   graphics (including logo.png), documentation, and underlying algorithms, remains 
+   the sole property of Joshua Alexander.
+   
+2. RESTRICTIONS: 
+   - You may NOT copy, distribute, sell, sublicense, or transfer this software 
+     without explicit written permission from the Owner.
+   - You may NOT reverse engineer, decompile, or disassemble the software.
+   - You may NOT remove any copyright notices or proprietary markings.
+
+3. EXTERNAL DEPENDENCIES:
+   This software may utilize external libraries and tools (e.g., yt_dlp, PyQt5, 
+   sentence-transformers). These remain the property of their respective owners 
+   and are subject to their own licenses. The Owner claims no ownership over these 
+   third-party components.
+
+4. NO WARRANTY:
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+   OWNER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN 
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+5. LEGAL COMPLIANCE:
+   Users are solely responsible for complying with all applicable laws, including 
+   copyright laws regarding media downloading (e.g., via yt_dlp). The Owner accepts 
+   no liability for user actions.
+
+CONTACT:
+For licensing inquiries or permissions, contact:
+Name: Joshua Alexander
+Email: somebodysomeone1982@gmail.com
+GitHub: Taterfacer
+Patreon: patreon.com/taterfacer
+
+UNAUTHORIZED USE IS STRICTLY PROHIBITED.
