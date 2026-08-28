@@ -141,6 +141,9 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
     """
     Discovers Python files in the workspace.
     Uses lexicographic sorting to optimize sequential reads on mechanical HDDs.
+    
+    B8 fix: Only reports files that actually changed based on size:mtime hash comparison
+    against stored manifest, instead of marking all files as changed.
     """
     t0 = time.monotonic()
     files: list[DiscoveredFile] = []
@@ -148,6 +151,12 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
     read_total = 0
 
     project_root = cfg.project_root if hasattr(cfg, "project_root") else Path.cwd()
+
+    # Load existing manifest for change detection (B8 fix)
+    try:
+        old_manifest = store.get_file_manifest() if hasattr(store, "get_file_manifest") else {}
+    except Exception:
+        old_manifest = {}
 
     for dirpath, dirnames, filenames in os.walk(project_root, topdown=True):
         # Sort directories in-place for lexicographic traversal
@@ -174,7 +183,9 @@ def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult
                         sha256=digest,
                     )
                 )
-                changed.append(rel)
+                # Only mark as changed if hash differs from stored manifest (B8 fix)
+                if old_manifest.get(rel) != digest:
+                    changed.append(rel)
                 read_total += st.st_size
             except OSError as e:
                 log.warning(f"Failed to stat {abs_path}: {e}")

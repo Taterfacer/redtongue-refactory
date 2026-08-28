@@ -306,6 +306,7 @@ class PlaylistWidget(QListWidget):
             event.ignore()
 
     def dropEvent(self, event: QDropEvent):
+        """Handles drag and drop of audio files (B18 fix: removed parent coupling)."""
         urls = event.mimeData().urls()
         paths = []
         for url in urls:
@@ -318,9 +319,10 @@ class PlaylistWidget(QListWidget):
                 elif p.suffix.lower() in ALL_EXTS:
                     paths.append(p)
         if paths:
-            # Emit a custom signal or handle via parent. For simplicity, we'll let the parent poll or use a direct callback.
-            # In this architecture, the parent connects to a custom signal.
-            self.parent().handle_playlist_drop(paths)
+            # Emit signal instead of directly calling parent method (B18 fix)
+            self.files_dropped.emit(paths)
+
+    files_dropped = pyqtSignal(list)  # B18 fix: custom signal for decoupling
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
@@ -335,9 +337,14 @@ class PlaylistWidget(QListWidget):
         menu.exec(self.mapToGlobal(pos))
 
     def _remove_selected(self):
-        for item in self.selectedItems():
+        """Remove selected items from both the widget and the underlying playlist (B17 fix)."""
+        # Remove in reverse order to maintain correct row indices
+        for item in reversed(self.selectedItems()):
             row = self.row(item)
             self.takeItem(row)
+            # Also remove from the parent's playlist model (B17 fix)
+            if hasattr(self.parent(), 'remove_track_at'):
+                self.parent().remove_track_at(row)
             self.parent().remove_track_at(row)
 
 
@@ -713,10 +720,19 @@ class MediaSuiteWidget(QWidget):
         atomic_write_json(PLAYLIST_FILE, data)
 
     def _load_saved_playlist(self):
+        """Loads the saved playlist from JSON, skipping non-existent files (B26 fix)."""
         saved = load_json(PLAYLIST_FILE, {"playlist": [], "current_index": -1})
-        paths = [Path(p) for p in saved.get("playlist", []) if Path(p).exists()]
-        if paths:
-            self._add_files(paths)
+        valid_paths = []
+        for p in saved.get("playlist", []):
+            path = Path(p)
+            if path.exists():
+                valid_paths.append(path)
+            else:
+                # B26 fix: Log dropped files that no longer exist
+                print(f"Playlist: File no longer exists, skipping: {path}")
+        
+        if valid_paths:
+            self._add_files(valid_paths)
             idx = saved.get("current_index", -1)
             if 0 <= idx < len(self.playlist):
                 self._play_index(idx)
