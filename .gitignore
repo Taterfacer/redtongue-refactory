@@ -1,13 +1,22 @@
 ```
-# Logs and temp files
-*.log
-*.tmp
-*.swp
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
 
 # Editors
 .vscode/
@@ -18,31 +27,17 @@
 venv/
 node_modules/
 
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
+# Build artifacts
 dist/
 build/
 target/
 
-# System files
-.DS_Store
-Thumbs.db
-
 # Coverage
+.coverage
 coverage/
 htmlcov/
-.coverage
 
-# Python specific
-.mypy_cache/
-.pytest_cache/
-
-# Gradle
-.gradle/
-
-# Original rules preserved
-*.log
+# OS
+.DS_Store
+Thumbs.db
 ```

@@ -34,6 +34,50 @@ from typing import Any, AsyncGenerator, ClassVar, Final
 
 import requests
 
+# Module-level embedding cache keyed by (text_hash, dim) to avoid caching bound methods
+_embedding_cache: dict[tuple[int, int], Any] = {}
+_EMBED_CACHE_MAX_SIZE = 256
+
+# Query size limit to bound memory for oversized inputs
+_QUERY_TEXT_LIMIT = 10000  # Max characters for query input
+
+
+def _get_cached_embedding(text: str, dim: int) -> Any:
+    """Generate or retrieve cached embedding vector using secure hash-based tokenization.
+    
+    Uses a module-level cache keyed by text hash and dimension to avoid issues with
+    caching bound methods. Enforces cache size limit.
+    """
+    if np is None:
+        msg = "NumPy is required for embeddings"
+        raise ImportError(msg)
+    
+    # Create a hash key for the text to use in cache lookup
+    text_hash = int(hashlib.sha256(text.encode("utf-8")).hexdigest()[:16], 16)
+    cache_key = (text_hash, dim)
+    
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+    
+    # Generate embedding
+    vec = np.zeros(dim, dtype=np.float32)
+    tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
+    for tok in tokens:
+        idx = int(hashlib.sha256(tok.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[idx] += 1.0
+    norm = float(np.linalg.norm(vec))
+    if norm > 0:
+        vec /= norm
+    
+    # Enforce cache size limit before adding new entry
+    if len(_embedding_cache) >= _EMBED_CACHE_MAX_SIZE:
+        # Remove oldest entry (first key)
+        first_key = next(iter(_embedding_cache))
+        del _embedding_cache[first_key]
+    
+    _embedding_cache[cache_key] = vec
+    return vec
+
 try:
     import numpy as np  # type: ignore[import-untyped]
 except ImportError:
@@ -632,27 +676,19 @@ class RAGIndex:
                            file_id, original_count - len(self._chunks))
 
     @staticmethod
-    @lru_cache(maxsize=4096)
     def _tokens(text: str) -> list[str]:
-        return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
+        """Tokenize text for embedding with size limit enforcement."""
+        # Enforce query size limit before tokenization
+        if len(text or "") > _QUERY_TEXT_LIMIT:
+            text = (text or "")[:_QUERY_TEXT_LIMIT]
+        return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", text.lower())
 
-    @lru_cache(maxsize=256)
     def _embed(self, text: str) -> np.ndarray:
-        """Generate embedding vector using secure hash-based tokenization."""
-        if np is None:
-            msg = "NumPy is required for embeddings"
-            raise ImportError(msg)
-        vec = np.zeros(self.DIM, dtype=np.float32)
-        for tok in self._tokens(text):
-            # Use SHA256 instead of MD5 for security
-            idx = (
-                int(hashlib.sha256(tok.encode("utf-8")).hexdigest()[:8], 16) % self.DIM
-            )
-            vec[idx] += 1.0
-        norm = float(np.linalg.norm(vec))
-        if norm > 0:
-            vec /= norm
-        return vec
+        """Generate embedding vector using module-level cached helper."""
+        # Enforce query size limit before embedding
+        if len(text or "") > _QUERY_TEXT_LIMIT:
+            text = (text or "")[:_QUERY_TEXT_LIMIT]
+        return _get_cached_embedding(text, self.DIM)
 
     def _iter_workspace_files(self):
         for root, dirs, files in os.walk(self.workspace):
@@ -1086,7 +1122,7 @@ class ToolLayer:
     
     # Cached sets for performance optimization (avoid recreation on each call)
     _IGNORE_DIRS_SET: ClassVar[frozenset[str]] = frozenset(
-        {".git", ".svn", ".hg", "node_modules", "__pycache__", "venv", ".venv"}
+        {".git", ".svn", ".hg", "node_modules", "__pycache__", "venv", ".venv", "libs", "dist", "build", "site-packages"}
     )
 
     def __init__(self, workspace: str, sandbox_mode: bool = True) -> None:
