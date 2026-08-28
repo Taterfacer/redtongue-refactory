@@ -358,7 +358,6 @@ class PlaylistWidget(QListWidget):
             # Also remove from the parent's playlist model (B17 fix)
             if hasattr(self.parent(), 'remove_track_at'):
                 self.parent().remove_track_at(row)
-            self.parent().remove_track_at(row)
 
 
 class RTButton(QPushButton):
@@ -507,6 +506,7 @@ class MediaSuiteWidget(QWidget):
 
         # Playlist
         self.playlist_widget = PlaylistWidget(self)
+        self.playlist_widget.files_dropped.connect(self.handle_playlist_drop)
         bottom_splitter.addWidget(self.playlist_widget)
 
         # Action Buttons
@@ -738,9 +738,9 @@ class MediaSuiteWidget(QWidget):
         Load the saved playlist, omit files that no longer exist, and restore the saved track when valid.
         """
         saved = load_json(PLAYLIST_FILE, {"playlist": [], "current_index": -1})
+        saved_paths = [Path(p) for p in saved.get("playlist", [])]
         valid_paths = []
-        for p in saved.get("playlist", []):
-            path = Path(p)
+        for path in saved_paths:
             if path.exists():
                 valid_paths.append(path)
             else:
@@ -748,10 +748,16 @@ class MediaSuiteWidget(QWidget):
                 print(f"Playlist: File no longer exists, skipping: {path}")
         
         if valid_paths:
+            restore_index = 0
+            saved_index = saved.get("current_index", -1)
+            if isinstance(saved_index, int) and 0 <= saved_index < len(saved_paths):
+                saved_current_path = saved_paths[saved_index]
+                try:
+                    restore_index = valid_paths.index(saved_current_path)
+                except ValueError:
+                    pass
             self._add_files(valid_paths)
-            idx = saved.get("current_index", -1)
-            if 0 <= idx < len(self.playlist):
-                self._play_index(idx)
+            self._play_index(restore_index)
 
 
 # ==============================================================================

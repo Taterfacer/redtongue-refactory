@@ -576,6 +576,7 @@ class RefactoryMainWindow(QMainWindow):
             # Rebind ToolLayer and AgentSwarm to new workspace (B4 fix)
             self.tool_layer = ToolLayer(str(self.current_project))
             self.swarm = AgentSwarm(self.tool_layer)
+            self.chat_panel.swarm = self.swarm
             self.status_bar.showMessage(f"Project loaded: {path}")
 
     def _open_file(self, index):

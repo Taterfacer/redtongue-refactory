@@ -355,7 +355,7 @@ class DiagnosticBrain:
         }
 
     # SHA-256 hashes for model verification (prevent supply chain attacks)
-    MODEL_HASH = "sha256:TODO_FILL_WITH_ACTUAL_HASH"  # e.g., "a1b2c3d4..."
+    MODEL_HASH = "sha256:aa50eb16da7a975c9058b2deab306aa066aa9d916a05fa2e3923f9e9acd58e1b"
     
     def ensure_model(
         self, progress_callback: Callable[[float], None] | None = None
@@ -804,8 +804,8 @@ class KokoroTTS:
 
     # SHA-256 hashes for TTS model verification (prevent supply chain attacks)
     MODEL_HASHES: Final[dict[str, str]] = {
-        "kokoro-v1.0.onnx": "sha256:TODO_FILL_WITH_ACTUAL_HASH",
-        "voices-v1.0.bin": "sha256:TODO_FILL_WITH_ACTUAL_HASH",
+        "kokoro-v1.0.onnx": "sha256:7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+        "voices-v1.0.bin": "sha256:bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
     }
     
     def _download(self, name: str) -> bool:
@@ -881,16 +881,11 @@ class KokoroTTS:
                 return self._engine
             onnx_path = self.models_dir / "kokoro-v1.0.onnx"
             voices_path = self.models_dir / "voices-v1.0.bin"
-            models_exist = onnx_path.exists() and voices_path.exists()
-            if not models_exist:
-                downloaded = (
-                    self._download("kokoro-v1.0.onnx")
-                    and self._download("voices-v1.0.bin")
+            assets_valid = [self._download(name) for name in self.ASSETS]
+            if not all(assets_valid):
+                raise RuntimeError(
+                    f"TTS models missing. Place in: {self.models_dir}"
                 )
-                if not downloaded:
-                    raise RuntimeError(
-                        f"TTS models missing. Place in: {self.models_dir}"
-                    )
             from kokoro_onnx import Kokoro
 
             logger.info("Loading Kokoro TTS...")
@@ -983,24 +978,23 @@ class ToolLayer:
         "reboot ",
         ":(){:|:&};:",  # Fork bomb - kept for documentation but not used in comparison
     )
-    # Commands that should never be allowed
-    FORBIDDEN_COMMANDS = frozenset({
-        "dd",  # Raw disk access
-        "chmod",  # Permission changes when recursive
-        "chown",  # Ownership changes
-        "sudo",  # Privilege escalation
-        "su",  # User switching
-        "curl",  # Remote code download potential
-        "wget",  # Remote code download potential
-        "python",  # Arbitrary code execution
-        "python3",  # Arbitrary code execution
-        "perl",  # Arbitrary code execution
-        "ruby",  # Arbitrary code execution
-        "node",  # Arbitrary code execution
-        "php",  # Arbitrary code execution
-        "bash",  # Shell within shell
-        "sh",  # Shell within shell
-    })
+    ALLOWED_SHELL_COMMANDS: Final[frozenset[tuple[str, ...]]] = frozenset(
+        {
+            ("pwd",),
+            ("ls",),
+            ("ls", "-l"),
+            ("ls", "-la"),
+            ("ls", "-al"),
+            ("git", "status"),
+            ("git", "status", "--short"),
+            ("git", "status", "--porcelain"),
+            ("git", "diff"),
+            ("git", "diff", "--cached"),
+            ("git", "diff", "--staged"),
+            ("git", "log", "--oneline"),
+            ("git", "branch", "--show-current"),
+        }
+    )
     ALLOWED_SANDBOX_MODES = (True, False)
     SHELL_INTERPRETERS = frozenset(
         {
@@ -1230,8 +1224,11 @@ class ToolLayer:
                 arg.lstrip("-") for arg in arguments if arg.startswith("-")
             )
             
-            # Check if command is in forbidden list
-            if executable in self.FORBIDDEN_COMMANDS:
+            normalized_command = (executable, *cmd_list[1:])
+            if (
+                cmd_list[0].lower() != executable
+                or normalized_command not in self.ALLOWED_SHELL_COMMANDS
+            ):
                 return {"status": "error", "error": f"Blocked: '{executable}' is not allowed."}
             
             # Check for dangerous argument patterns
