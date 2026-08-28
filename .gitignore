@@ -24,7 +24,6 @@ env/
 *.tmp
 
 # Build artifacts
-dist/
 build/
 target/
 *.out
