@@ -2,30 +2,12 @@
 # Compiled Python files
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
+# Dependency directories
+.red_tongue_index/
 
-# Environment
+# Environment files
 .env
 .env.local
 *.env.*
-
-# Editors
-.vscode/
-.idea/
-
-# Dependencies
-.venv/
-venv/
-node_modules/
-
-# Build artifacts
-dist/
-build/
-target/
 ```
