@@ -1,48 +1,48 @@
 ```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
 
 # Dependencies
 .venv/
 venv/
-env/
-.env
-.env.local
-.env.*
-requirements.txt.bak
+node_modules/
 
-# Logs
-*.log
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
+*.obj
+dist/
+build/
+target/
 
-# Temporary files
-*.tmp
-*.swp
-*~
+# System files
 .DS_Store
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-target/
-node_modules/
-
 # Coverage
-.coverage
 coverage/
 htmlcov/
+.coverage
 
-# Testing
-.pytest_cache/
+# Python specific
 .mypy_cache/
+.pytest_cache/
+
+# Gradle
+.gradle/
+
+# Original rules preserved
+*.log
 ```
