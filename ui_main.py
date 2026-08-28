@@ -13,18 +13,19 @@ import threading
 from pathlib import Path
 
 from PyQt6.QtCore import QProcess, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFileSystemModel
 from PyQt6.QtGui import (
     QAction,
     QColor,
     QFont,
     QKeySequence,
+    QShortcut,
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
 )
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFileSystemModel,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -34,7 +35,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QShortcut,
     QSplitter,
     QStatusBar,
     QTableWidget,
