@@ -28,7 +28,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from functools import lru_cache
+from functools import lru_cache, cached_property
 from pathlib import Path
 from typing import Any, AsyncGenerator, ClassVar, Final
 
@@ -265,9 +265,13 @@ def is_sensitive_path(path: Path | str) -> bool:
     # Cache Path parsing to avoid redundant operations
     p = Path(path)
     name = p.name.lower()
-    if name in _SENSITIVE_NAMES or name.startswith(".env"):
+    # Fast path: check exact name match first
+    if name in _SENSITIVE_NAMES:
         return True
-    # Use cached set for faster membership testing
+    # Check for .env* prefix pattern (covers .env, .env.local, .env.production, etc.)
+    if name.startswith(".env"):
+        return True
+    # Use cached set for faster membership testing on parts
     return any(part.lower() in _SENSITIVE_PARTS for part in p.parts)
 
 
@@ -628,9 +632,11 @@ class RAGIndex:
                            file_id, original_count - len(self._chunks))
 
     @staticmethod
+    @lru_cache(maxsize=4096)
     def _tokens(text: str) -> list[str]:
         return re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", (text or "").lower())
 
+    @lru_cache(maxsize=256)
     def _embed(self, text: str) -> np.ndarray:
         """Generate embedding vector using secure hash-based tokenization."""
         if np is None:
@@ -683,7 +689,11 @@ class RAGIndex:
             return None
         if not chunks:
             return np.zeros((0, self.DIM), dtype=np.float32)
-        return np.stack([self._embed(c["text"]) for c in chunks]).astype(np.float32)
+        # Pre-allocate matrix and fill in loop for better performance
+        matrix = np.empty((len(chunks), self.DIM), dtype=np.float32)
+        for i, c in enumerate(chunks):
+            matrix[i] = self._embed(c["text"])
+        return matrix
 
     def reindex(self) -> None:
         if np is None:
@@ -1073,6 +1083,11 @@ class ToolLayer:
     MAX_FETCH_OUTPUT = 8000
     MAX_SNIPPET = 400
     FILE_CHUNK_SIZE = 64 * 1024  # 64KB chunks for HDD optimization
+    
+    # Cached sets for performance optimization (avoid recreation on each call)
+    _IGNORE_DIRS_SET: ClassVar[frozenset[str]] = frozenset(
+        {".git", ".svn", ".hg", "node_modules", "__pycache__", "venv", ".venv"}
+    )
 
     def __init__(self, workspace: str, sandbox_mode: bool = True) -> None:
         self.workspace = str(Path(workspace).resolve())
@@ -1205,12 +1220,14 @@ class ToolLayer:
         assert p is not None
         try:
             results: list[str] = []
+            # Use cached set for faster lookup
+            ignore_dirs = self._IGNORE_DIRS_SET
             for root, dirs, files in os.walk(p):
                 # Filter directories in-place to control traversal depth
                 dirs[:] = [
                     d
                     for d in dirs
-                    if not d.startswith(".") and d not in RAGIndex.IGNORE_DIRS
+                    if not d.startswith(".") and d not in ignore_dirs
                 ]
                 for f in files:
                     rel = os.path.relpath(os.path.join(root, f), self.workspace)
