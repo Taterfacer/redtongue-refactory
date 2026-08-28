@@ -1,0 +1,13 @@
+```
+# Compiled Python files
+__pycache__/
+*.pyc
+
+# Dependency directories
+.red_tongue_index/
+
+# Environment files
+.env
+.env.local
+*.env.*
+```
