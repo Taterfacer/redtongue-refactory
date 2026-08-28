@@ -1,9 +1,4 @@
-```
-# Compiled Python files
-*.pyc
+```gitignore
 __pycache__/
-
-# Logs
-*.log
-logs/
+*.pyc
 ```
