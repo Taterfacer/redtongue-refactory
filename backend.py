@@ -358,12 +358,18 @@ class SpeechToText:
 
     def __init__(self):
         self.recognizer = sr.Recognizer() if HAS_STT else None
-        self.microphone = sr.Microphone() if HAS_STT else None
+        self.microphone = None
+        if HAS_STT:
+            try:
+                self.microphone = sr.Microphone()
+            except (OSError, AttributeError) as e:
+                # No default input device available or PyAudio not installed
+                logger.warning("STT unavailable: %s", e)
 
     def listen_and_transcribe(
         self, timeout: int = 5, phrase_time_limit: int = 10
     ) -> str | None:
-        if not HAS_STT or not self.recognizer:
+        if not HAS_STT or not self.recognizer or self.microphone is None:
             return None
         try:
             with self.microphone as source:
