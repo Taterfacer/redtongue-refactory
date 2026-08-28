@@ -1,3 +1,4 @@
+<img width="512" height="512" alt="logo" src="https://github.com/user-attachments/assets/e96d4eb2-36c9-4e54-ba53-2e8c3661fb6c" />
 # RedTongue Refactory
 
 **Version:** 4.0.0  
