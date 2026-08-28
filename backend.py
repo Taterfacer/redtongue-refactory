@@ -20,6 +20,8 @@ import mmap
 import os
 import re
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -536,6 +538,7 @@ class RAGIndex:
         self._dirty = False
         self._pending_files: set[str] = set()
         self._reindex_timer: threading.Timer | None = None
+        self._closed = False
 
         if np is None:
             logger.warning("numpy unavailable — RAG disabled.")
@@ -568,7 +571,7 @@ class RAGIndex:
             return False
 
     def _save(self) -> None:
-        if np is None:
+        if np is None or self._closed:
             return
         try:
             self.index_dir.mkdir(parents=True, exist_ok=True)
@@ -587,6 +590,29 @@ class RAGIndex:
             np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
         except (OSError, ValueError) as e:
             logger.warning("RAG save failed: %s", e)
+
+    def remove_file(self, file_id: str) -> None:
+        """Remove chunks for a specific file and rebuild the index.
+        
+        Parameters:
+            file_id (str): Normalized relative path of the file to remove.
+        """
+        with self._lock:
+            if self._closed:
+                return
+            
+            # Filter out chunks matching this file_id
+            original_count = len(self._chunks)
+            self._chunks = [c for c in self._chunks if c.get("path") != file_id]
+            
+            # Only rebuild if chunks were actually removed
+            if len(self._chunks) != original_count:
+                # Rebuild matrix from remaining chunks
+                self._matrix = self._build_matrix(self._chunks)
+                # Persist updated index
+                self._save()
+                logger.info("RAG removed file %s: %d chunks removed", 
+                           file_id, original_count - len(self._chunks))
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
@@ -697,6 +723,10 @@ class RAGIndex:
             return
         
         with self._lock:
+            # Check closed state before processing
+            if self._closed:
+                return
+            
             if not self._pending_files:
                 return
             
@@ -762,10 +792,13 @@ class RAGIndex:
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             # Cancel pending reindex timer to prevent execution after shutdown
             if self._reindex_timer is not None:
                 self._reindex_timer.cancel()
                 self._reindex_timer = None
+            # Clear pending files to prevent future processing
+            self._pending_files.clear()
             if self._dirty:
                 self._save()
                 self._dirty = False
@@ -1275,6 +1308,28 @@ class ToolLayer:
             
             cmd_config = ALLOWED_COMMANDS[executable]
             
+            # Validate max_args if specified
+            if "max_args" in cmd_config and len(arguments) > cmd_config["max_args"]:
+                return {"status": "error", "error": f"Blocked: '{executable}' exceeds maximum argument count."}
+            
+            # Validate args_pattern if specified
+            if "args_pattern" in cmd_config:
+                pattern = cmd_config["args_pattern"]
+                for arg in arguments:
+                    if not re.match(pattern, arg):
+                        return {"status": "error", "error": f"Blocked: invalid argument '{arg}' for '{executable}'."}
+            
+            # Validate restricted_paths for commands that require path confinement
+            if cmd_config.get("restricted_paths"):
+                for arg in arguments:
+                    if not arg.startswith("-") and not self._safe_path(arg):
+                        return {"status": "error", "error": f"Blocked: path '{arg}' is outside workspace."}
+            
+            # Validate no_recursive for rm/cat commands
+            if cmd_config.get("no_recursive"):
+                if "-R" in arguments or "-r" in arguments:
+                    return {"status": "error", "error": f"Blocked: recursive operation not allowed for '{executable}'."}
+            
             # Validate git subcommands
             if executable == "git":
                 if arguments and arguments[0] not in cmd_config.get("subcommands", set()):
@@ -1727,15 +1782,9 @@ class ToolLayer:
             
             p.unlink()
             
-            # Queue RAG index cleanup for the deleted file
-            if hasattr(self.rag, '_pending_files'):
-                self.rag._pending_files.discard(file_id)  # Remove from pending
-            # Remove existing chunks for this file
-            if hasattr(self.rag, '_chunks') and file_id in self.rag._chunks:
-                del self.rag._chunks[file_id]
-                # Rebuild matrix and persist
-                if hasattr(self.rag, '_save'):
-                    self.rag._save()
+            # Call RAGIndex.remove_file to properly remove chunks and rebuild index
+            if hasattr(self.rag, 'remove_file'):
+                self.rag.remove_file(file_id)
             
             return {"status": "success", "deleted": path}
         except OSError as e:
