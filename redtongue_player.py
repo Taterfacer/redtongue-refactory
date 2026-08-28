@@ -300,12 +300,19 @@ class PlaylistWidget(QListWidget):
             event.ignore()
 
     def dragMoveEvent(self, event):
+        """Accept drag movements containing file URLs and reject other drag data."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dropEvent(self, event: QDropEvent):
+        """
+        Collect supported media files from dropped local files and directories, then emit them through the drop signal.
+        
+        Parameters:
+        	event (QDropEvent): The drop event containing local file or directory URLs.
+        """
         urls = event.mimeData().urls()
         paths = []
         for url in urls:
@@ -318,11 +325,17 @@ class PlaylistWidget(QListWidget):
                 elif p.suffix.lower() in ALL_EXTS:
                     paths.append(p)
         if paths:
-            # Emit a custom signal or handle via parent. For simplicity, we'll let the parent poll or use a direct callback.
-            # In this architecture, the parent connects to a custom signal.
-            self.parent().handle_playlist_drop(paths)
+            # Emit signal instead of directly calling parent method (B18 fix)
+            self.files_dropped.emit(paths)
+
+    files_dropped = pyqtSignal(list)  # B18 fix: custom signal for decoupling
 
     def _show_context_menu(self, pos):
+        """Display the playlist context menu for removing selected items or clearing the playlist.
+        
+        Parameters:
+        	pos: The position where the context menu is displayed.
+        """
         menu = QMenu(self)
         menu.setStyleSheet(f"""
             QMenu {{ background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER}; }}
@@ -335,10 +348,16 @@ class PlaylistWidget(QListWidget):
         menu.exec(self.mapToGlobal(pos))
 
     def _remove_selected(self):
-        for item in self.selectedItems():
+        """
+        Remove selected items from the widget and the underlying playlist.
+        """
+        # Remove in reverse order to maintain correct row indices
+        for item in reversed(self.selectedItems()):
             row = self.row(item)
             self.takeItem(row)
-            self.parent().remove_track_at(row)
+            # Also remove from the parent's playlist model (B17 fix)
+            if hasattr(self.parent(), 'remove_track_at'):
+                self.parent().remove_track_at(row)
 
 
 class RTButton(QPushButton):
@@ -487,6 +506,8 @@ class MediaSuiteWidget(QWidget):
 
         # Playlist
         self.playlist_widget = PlaylistWidget(self)
+        # Connect playlist drop signal to handle_playlist_drop (B18 fix)
+        self.playlist_widget.files_dropped.connect(self.handle_playlist_drop)
         bottom_splitter.addWidget(self.playlist_widget)
 
         # Action Buttons
@@ -706,6 +727,7 @@ class MediaSuiteWidget(QWidget):
 
     # --- Persistence ---
     def _save_playlist(self):
+        """Persist the current playlist paths and selected track index to the playlist file."""
         data = {
             "playlist": [str(p) for p in self.playlist],
             "current_index": self.current_index,
@@ -713,13 +735,52 @@ class MediaSuiteWidget(QWidget):
         atomic_write_json(PLAYLIST_FILE, data)
 
     def _load_saved_playlist(self):
+        """
+        Load the saved playlist, omit files that no longer exist, and restore the saved track when valid.
+        """
         saved = load_json(PLAYLIST_FILE, {"playlist": [], "current_index": -1})
-        paths = [Path(p) for p in saved.get("playlist", []) if Path(p).exists()]
-        if paths:
-            self._add_files(paths)
-            idx = saved.get("current_index", -1)
-            if 0 <= idx < len(self.playlist):
-                self._play_index(idx)
+        saved_paths = [Path(p) for p in saved.get("playlist", [])]
+        valid_paths = []
+        saved_current_path = None
+        current_idx = saved.get("current_index", -1)
+        playlist_list = saved.get("playlist", [])
+        
+        # Get the saved current path if index is valid
+        if 0 <= current_idx < len(playlist_list):
+            saved_current_path = Path(playlist_list[current_idx])
+        
+        for p in playlist_list:
+            path = Path(p)
+            if path.exists():
+                valid_paths.append(path)
+            else:
+                # B26 fix: Log dropped files that no longer exist
+                print(f"Playlist: File no longer exists, skipping: {path}")
+        
+        if valid_paths:
+            restore_index = 0
+            saved_index = saved.get("current_index", -1)
+            if isinstance(saved_index, int) and 0 <= saved_index < len(saved_paths):
+                saved_current_path = saved_paths[saved_index]
+                try:
+                    restore_index = valid_paths.index(saved_current_path)
+                except ValueError:
+                    pass
+            self._add_files(valid_paths)
+            # Remap saved current_index to compacted valid_paths index
+            if saved_current_path and saved_current_path.exists():
+                try:
+                    remapped_idx = valid_paths.index(saved_current_path)
+                    self._play_index(remapped_idx)
+                except ValueError:
+                    # Fallback to first track if saved path not found
+                    self._play_index(0)
+            elif 0 <= current_idx < len(valid_paths):
+                # Fallback: use original index if still valid
+                self._play_index(current_idx)
+            else:
+                # Final fallback: play first track
+                self._play_index(0)
 
 
 # ==============================================================================

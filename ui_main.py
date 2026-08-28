@@ -533,6 +533,7 @@ class RefactoryMainWindow(QMainWindow):
         self.status_bar.showMessage("Ready.")
 
     def _build_menus(self):
+        """Build the main window's File and Decks menus with their associated actions and shortcuts."""
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
@@ -545,12 +546,12 @@ class RefactoryMainWindow(QMainWindow):
 
         decks_menu = menubar.addMenu("&Decks")
         decks = [
-            ("Focus Studio", "RedTongue_Focus.py"),
-            ("Crucible (Compiler)", "RedTongue_Crucible.py"),
-            ("Ripper (Downloader)", "RedTongue_Ripper.py"),
-            ("Alchemist (Converter)", "RedTongue_Alchemist.py"),
-            ("Maestro (Mastering)", "RedTongue_Maestro.py"),
-            ("PyLib (Packages)", "red_tongue_pylib_manager_v26.5.py"),
+            ("Focus Studio", "ui_focus.py"),
+            ("Crucible (Compiler)", "ui_crucible.py"),
+            ("Ripper (Downloader)", "ui_ripper.py"),
+            ("Alchemist (Converter)", "ui_alchemist.py"),
+            ("Maestro (Mastering)", "ui_alchemist.py"),
+            ("PyLib (Packages)", "ui_pylib.py"),
         ]
         for name, script in decks:
             action = QAction(name, self)
@@ -562,7 +563,9 @@ class RefactoryMainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, self.lint_panel._start_lint)
 
     def _open_project(self):
-        """Opens a project folder and updates file tree view."""
+        """
+        Open a project folder and rebind the workspace tools to it.
+        """
         path = QFileDialog.getExistingDirectory(self, "Open Project Folder")
         if path:
             self.current_project = Path(path)
@@ -570,6 +573,12 @@ class RefactoryMainWindow(QMainWindow):
             self.file_tree.setRootIndex(
                 self.file_model.index(str(self.current_project))
             )
+            # Rebind ToolLayer and AgentSwarm to new workspace (B4 fix)
+            self.tool_layer = ToolLayer(str(self.current_project))
+            self.swarm = AgentSwarm(self.tool_layer)
+            # Update ChatPanel.swarm reference to use new swarm instance
+            if hasattr(self, 'chat_panel') and self.chat_panel:
+                self.chat_panel.swarm = self.swarm
             self.status_bar.showMessage(f"Project loaded: {path}")
 
     def _open_file(self, index):

@@ -20,6 +20,8 @@ import mmap
 import os
 import re
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -54,7 +56,7 @@ except ImportError:
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent
 CONFIG_FILE: Final[Path] = BASE_DIR / "config.json"
-MASTER_KEY_SALT: Final[bytes] = b"red_tongue_v1_static_salt"
+SALT_FILE: Final[Path] = BASE_DIR / ".red_tongue_salt"
 PBKDF2_ITERATIONS: Final[int] = 200_000
 
 logger: Final[logging.Logger] = logging.getLogger("RedTongue.Backend")
@@ -89,13 +91,29 @@ AI_ROLE_PRESETS: dict[str, dict] = {
 
 @lru_cache(maxsize=1)
 def get_machine_key() -> bytes:
-    """Derive a stable machine-specific encryption key using PBKDF2-SHA256.
-
+    """
+    Derives a stable encryption key from the user identity, home directory, and a per-installation salt.
+    
     Returns:
-        bytes: URL-safe base64-encoded 32-byte key derived from machine identity.
+        bytes: URL-safe base64-encoded derived key.
     """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    # Load or generate per-install random salt
+    if SALT_FILE.exists():
+        try:
+            random_salt = SALT_FILE.read_bytes()
+            if len(random_salt) != 32:
+                raise ValueError("Invalid salt length")
+        except (OSError, ValueError):
+            random_salt = os.urandom(32)
+            SALT_FILE.write_bytes(random_salt)
+            SALT_FILE.chmod(0o600)
+    else:
+        random_salt = os.urandom(32)
+        SALT_FILE.write_bytes(random_salt)
+        SALT_FILE.chmod(0o600)
 
     try:
         identity = os.getlogin() + str(Path.home())
@@ -105,7 +123,7 @@ def get_machine_key() -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=MASTER_KEY_SALT,
+        salt=random_salt,
         iterations=PBKDF2_ITERATIONS,
     )
     return base64.urlsafe_b64encode(kdf.derive(identity.encode()))
@@ -326,18 +344,50 @@ class DiagnosticBrain:
 
     @property
     def status(self) -> dict:
+        """
+        Report the current model download and loading state.
+        
+        Returns:
+        	dict: A mapping containing the download status, progress, and readiness state.
+        """
         return {
             "status": self._download_status,
             "progress": self._download_progress,
             "loaded": self.is_ready,
         }
 
+    # SHA-256 hashes for model verification (prevent supply chain attacks)
+    MODEL_HASH = "sha256:aa50eb16da7a975c9058b2deab306aa066aa9d916a05fa2e3923f9e9acd58e1b"
+    
     def ensure_model(
         self, progress_callback: Callable[[float], None] | None = None
     ) -> bool:
-        """Checks for model, downloads if missing. Returns True if ready."""
+        """
+        Ensure the diagnostic model is available and loaded.
+        
+        Parameters:
+            progress_callback (Callable[[float], None] | None): Optional callback receiving download progress percentages.
+        
+        Returns:
+            bool: `True` if the model is verified and loaded, `False` otherwise.
+        """
+        import hashlib
+        
         model_path = self.models_dir / self.MODEL_NAME
         if model_path.exists() and model_path.stat().st_size > 10_000_000:
+            # Verify hash if configured
+            if self.MODEL_HASH and not self.MODEL_HASH.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(model_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                expected_hash = self.MODEL_HASH.replace("sha256:", "")
+                if actual_hash != expected_hash:
+                    logger.error("Model hash mismatch! Expected %s, got %s", expected_hash, actual_hash)
+                    self._download_status = "failed"
+                    return False
+            
             self._download_status = "ready"
             if not self._load_model():
                 self._download_status = "failed"
@@ -362,6 +412,21 @@ class DiagnosticBrain:
                                 if progress_callback:
                                     progress_callback(self._download_progress)
             tmp_path.replace(model_path)
+            
+            # Verify hash after download if configured
+            if self.MODEL_HASH and not self.MODEL_HASH.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(model_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                expected_hash = self.MODEL_HASH.replace("sha256:", "")
+                if actual_hash != expected_hash:
+                    logger.error("Downloaded model hash mismatch!")
+                    model_path.unlink()
+                    self._download_status = "failed"
+                    return False
+            
             self._download_status = "ready"
             if not self._load_model():
                 self._download_status = "failed"
@@ -459,12 +524,21 @@ class RAGIndex:
     )
 
     def __init__(self, workspace: str) -> None:
+        """
+        Initialize a workspace-scoped retrieval index and load existing data when available.
+        
+        Parameters:
+        	workspace (str): Path to the workspace whose files will be indexed.
+        """
         self.workspace = Path(workspace)
         self.index_dir = self.workspace / ".red_tongue_index"
         self._lock = threading.RLock()
         self._chunks: list[dict] = []
         self._matrix = None
         self._dirty = False
+        self._pending_files: set[str] = set()
+        self._reindex_timer: threading.Timer | None = None
+        self._closed = False
 
         if np is None:
             logger.warning("numpy unavailable — RAG disabled.")
@@ -497,7 +571,7 @@ class RAGIndex:
             return False
 
     def _save(self) -> None:
-        if np is None:
+        if np is None or self._closed:
             return
         try:
             self.index_dir.mkdir(parents=True, exist_ok=True)
@@ -516,6 +590,29 @@ class RAGIndex:
             np.savez_compressed(str(self.index_dir / "vectors.npz"), vectors=matrix)
         except (OSError, ValueError) as e:
             logger.warning("RAG save failed: %s", e)
+
+    def remove_file(self, file_id: str) -> None:
+        """Remove chunks for a specific file and rebuild the index.
+        
+        Parameters:
+            file_id (str): Normalized relative path of the file to remove.
+        """
+        with self._lock:
+            if self._closed:
+                return
+            
+            # Filter out chunks matching this file_id
+            original_count = len(self._chunks)
+            self._chunks = [c for c in self._chunks if c.get("path") != file_id]
+            
+            # Only rebuild if chunks were actually removed
+            if len(self._chunks) != original_count:
+                # Rebuild matrix from remaining chunks
+                self._matrix = self._build_matrix(self._chunks)
+                # Persist updated index
+                self._save()
+                logger.info("RAG removed file %s: %d chunks removed", 
+                           file_id, original_count - len(self._chunks))
 
     @staticmethod
     def _tokens(text: str) -> list[str]:
@@ -595,10 +692,10 @@ class RAGIndex:
             logger.warning("RAG reindex failed: %s", e)
 
     def index_file(self, path: str) -> None:
-        """Index a single file in the RAG system.
-
+        """Schedule a workspace file for batched RAG reindexing after a period of inactivity.
+        
         Args:
-            path: Relative path to the file within workspace.
+            path: Relative path to the file within the workspace.
         """
         if np is None:
             return
@@ -606,16 +703,64 @@ class RAGIndex:
         if not p.exists() or not p.is_file():
             return
         file_id = p.relative_to(self.workspace).as_posix()
+        
         with self._lock:
-            new_chunks = self._chunk_file(p, file_id)
-            # Remove old chunks for this file
-            self._chunks = [c for c in self._chunks if c["path"] != file_id]
-            self._chunks.extend(new_chunks)
+            # Add to pending files set
+            self._pending_files.add(file_id)
+            
+            # Cancel existing timer
+            if self._reindex_timer is not None:
+                self._reindex_timer.cancel()
+            
+            # Schedule batched reindex after 2 seconds of inactivity
+            self._reindex_timer = threading.Timer(2.0, self._flush_pending_files)
+            self._reindex_timer.daemon = True
+            self._reindex_timer.start()
+    
+    def _flush_pending_files(self) -> None:
+        """Flush all pending file updates to the RAG index."""
+        if np is None:
+            return
+        
+        with self._lock:
+            # Check closed state before processing
+            if self._closed:
+                return
+            
+            if not self._pending_files:
+                return
+            
+            # Remove old chunks for pending files
+            pending = self._pending_files.copy()
+            self._chunks = [c for c in self._chunks if c["path"] not in pending]
+            
+            # Add new chunks for pending files
+            for file_id in pending:
+                p = self.workspace / file_id
+                if p.exists() and p.is_file():
+                    new_chunks = self._chunk_file(p, file_id)
+                    self._chunks.extend(new_chunks)
+            
+            # Rebuild matrix and save
             self._matrix = self._build_matrix(self._chunks)
             self._save()
             self._dirty = False
+            self._pending_files.clear()
+            
+            logger.info("RAG batch indexed: %s files, %s total chunks", 
+                       len(pending), len(self._chunks))
 
     def query(self, text: str, top_k: int = 3) -> list[dict]:
+        """
+        Search the indexed workspace for chunks relevant to the query.
+        
+        Parameters:
+            text (str): Query text used to find relevant indexed chunks.
+            top_k (int): Maximum number of matching chunks to return.
+        
+        Returns:
+            list[dict]: Matching chunks with their paths, text, and similarity scores.
+        """
         with self._lock:
             if np is None or self._matrix is None or not self._chunks:
                 return []
@@ -647,6 +792,13 @@ class RAGIndex:
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
+            # Cancel pending reindex timer to prevent execution after shutdown
+            if self._reindex_timer is not None:
+                self._reindex_timer.cancel()
+                self._reindex_timer = None
+            # Clear pending files to prevent future processing
+            self._pending_files.clear()
             if self._dirty:
                 self._save()
                 self._dirty = False
@@ -678,14 +830,49 @@ class KokoroTTS:
     }
 
     def __init__(self, models_dir: Path | None = None) -> None:
+        """Initialize the text-to-speech model manager.
+        
+        Parameters:
+            models_dir (Path | None): Directory for model assets, or the default models directory when omitted.
+        """
         self.models_dir = Path(models_dir) if models_dir else BASE_DIR / "models"
         self._engine: Any = None
         self._lock = threading.Lock()
 
+    # SHA-256 hashes for TTS model verification (prevent supply chain attacks)
+    MODEL_HASHES: Final[dict[str, str]] = {
+        "kokoro-v1.0.onnx": "sha256:7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+        "voices-v1.0.bin": "sha256:bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+    }
+    
     def _download(self, name: str) -> bool:
+        """
+        Download a TTS model asset when it is unavailable and verify its integrity when configured.
+        
+        Parameters:
+            name (str): Name of the model asset to download.
+        
+        Returns:
+            bool: `True` if the asset exists and passes verification, `False` if downloading or verification fails.
+        """
+        import hashlib
+        
         dest = self.models_dir / name
         if dest.exists() and dest.stat().st_size > 0:
+            # Verify hash if configured
+            expected_hash = self.MODEL_HASHES.get(name, "")
+            if expected_hash and not expected_hash.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(dest, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                if actual_hash != expected_hash.replace("sha256:", ""):
+                    logger.error("TTS model %s hash mismatch!", name)
+                    dest.unlink()
+                    return False
             return True
+        
         logger.info("Downloading TTS: %s", name)
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True)
@@ -697,27 +884,51 @@ class KokoroTTS:
                         if chunk:
                             fh.write(chunk)
                 tmp.replace(dest)
-            return True
+                
+                # Verify hash after download if configured
+                expected_hash = self.MODEL_HASHES.get(name, "")
+                if expected_hash and not expected_hash.startswith("sha256:TODO"):
+                    sha256 = hashlib.sha256()
+                    with open(dest, "rb") as f:
+                        for chunk in iter(lambda: f.read(8192), b""):
+                            sha256.update(chunk)
+                    actual_hash = sha256.hexdigest()
+                    if actual_hash != expected_hash.replace("sha256:", ""):
+                        logger.error("Downloaded TTS model %s hash mismatch!", name)
+                        dest.unlink()
+                        return False
+                
+                return True
         except (requests.RequestException, OSError, ConnectionError) as e:
-            logger.error("TTS download '{name}' failed: %s", e)
+            logger.error("TTS download '%s' failed: %s", name, e)
             return False
 
     def _ensure_engine(self) -> Any:
+        """
+        Ensure the Kokoro text-to-speech engine is available and initialized.
+        
+        Returns:
+        	Any: The initialized Kokoro engine.
+        
+        Raises:
+        	RuntimeError: If the required model files cannot be downloaded.
+        """
         with self._lock:
             if self._engine is not None:
                 return self._engine
+            
+            # Download/verify all required assets (hash check even for existing files)
+            onnx_ok = self._download("kokoro-v1.0.onnx")
+            voices_ok = self._download("voices-v1.0.bin")
+            
+            if not (onnx_ok and voices_ok):
+                raise RuntimeError(
+                    f"TTS models missing or invalid. Place in: {self.models_dir}"
+                )
+            
             onnx_path = self.models_dir / "kokoro-v1.0.onnx"
             voices_path = self.models_dir / "voices-v1.0.bin"
-            models_exist = onnx_path.exists() and voices_path.exists()
-            if not models_exist:
-                downloaded = (
-                    self._download("kokoro-v1.0.onnx")
-                    and self._download("voices-v1.0.bin")
-                )
-                if not downloaded:
-                    raise RuntimeError(
-                        f"TTS models missing. Place in: {self.models_dir}"
-                    )
+            
             from kokoro_onnx import Kokoro
 
             logger.info("Loading Kokoro TTS...")
@@ -808,7 +1019,24 @@ class ToolLayer:
         "format c:",
         "shutdown ",
         "reboot ",
-        ":(){:|:&};:",
+        ":(){:|:&};:",  # Fork bomb - kept for documentation but not used in comparison
+    )
+    ALLOWED_SHELL_COMMANDS: Final[frozenset[tuple[str, ...]]] = frozenset(
+        {
+            ("pwd",),
+            ("ls",),
+            ("ls", "-l"),
+            ("ls", "-la"),
+            ("ls", "-al"),
+            ("git", "status"),
+            ("git", "status", "--short"),
+            ("git", "status", "--porcelain"),
+            ("git", "diff"),
+            ("git", "diff", "--cached"),
+            ("git", "diff", "--staged"),
+            ("git", "log", "--oneline"),
+            ("git", "branch", "--show-current"),
+        }
     )
     ALLOWED_SANDBOX_MODES = (True, False)
     SHELL_INTERPRETERS = frozenset(
@@ -827,6 +1055,7 @@ class ToolLayer:
     )
     EXEC_TIMEOUT = 60
     RUFF_TIMEOUT = 30
+    MAX_FILE_SIZE: Final[int] = 1_000_000  # Match RAGIndex.MAX_FILE_SIZE
     MAX_OUTPUT = 100_000
     MAX_FETCH_OUTPUT = 8000
     MAX_SNIPPET = 400
@@ -858,16 +1087,15 @@ class ToolLayer:
         return p, None
 
     def read_file(self, path: str, chunked: bool = False) -> dict:
-        """Read a file from the workspace with security validation.
-
-        For large files on HDD, supports chunked reading to reduce memory pressure.
-
-        Args:
-            path: Relative path within workspace.
-            chunked: If True, returns content in 64KB chunks for large files.
-
+        """
+        Read a UTF-8 text file within the workspace after path validation.
+        
+        Parameters:
+            path (str): Relative path to the file within the workspace.
+            chunked (bool): Retained for compatibility; does not alter the returned content.
+        
         Returns:
-            dict: Status dictionary with 'output' key (string or list of chunks).
+            dict: A success result containing the file text under ``output``, or an error result.
         """
         p, err = self._safe_path(path)
         if err:
@@ -875,29 +1103,24 @@ class ToolLayer:
         assert p is not None
         if not p.exists() or not p.is_file():
             return {"status": "error", "error": f"Not found: {path}"}
+        
+        # Enforce bounded-size policy to avoid loading large files into memory
         try:
-            if chunked or p.stat().st_size > self.FILE_CHUNK_SIZE * 10:
-                # Use memory-mapped I/O for large files (HDD optimization)
-                # This avoids loading entire file into RAM
-                chunks = []
-                with open(p, 'rb') as f:
-                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                        offset = 0
-                        while offset < len(mm):
-                            chunk = mm[offset:offset + self.FILE_CHUNK_SIZE]
-                            chunks.append(chunk.decode('utf-8', errors='replace'))
-                            offset += self.FILE_CHUNK_SIZE
+            file_size = p.stat().st_size
+            if file_size > self.MAX_FILE_SIZE:
                 return {
-                    "status": "success",
-                    "output": ''.join(chunks),
-                    "chunked": True,
-                    "size_bytes": p.stat().st_size,
+                    "status": "error",
+                    "error": f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})"
                 }
-            else:
-                return {
-                    "status": "success",
-                    "output": p.read_text(encoding="utf-8", errors="replace"),
-                }
+        except OSError as e:
+            return {"status": "error", "error": str(e)}
+        
+        try:
+            # Read entire file at once to avoid UTF-8 decoding issues at chunk boundaries
+            return {
+                "status": "success",
+                "output": p.read_text(encoding="utf-8", errors="replace"),
+            }
         except OSError as e:
             return {"status": "error", "error": str(e)}
 
@@ -1024,7 +1247,7 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def run_shell(self, command: str) -> dict:
-        """Execute shell command with security hardening."""
+        """Execute shell command with security hardening using allowlist approach."""
         import shlex
 
         if not command or not command.strip():
@@ -1041,6 +1264,21 @@ class ToolLayer:
                     "error": "Shell execution is disabled in sandbox mode.",
                 }
 
+            # Allowlist of permitted commands with validated argument forms
+            ALLOWED_COMMANDS = {
+                "ls": {"args_pattern": r"^(-[laRth]|--(?:color|help))?$"},
+                "dir": {"args_pattern": r"^(-[laRth]|--(?:color|help))?$"},
+                "pwd": {},
+                "cat": {"max_args": 5, "no_recursive": True},
+                "head": {"args_pattern": r"^(-n\d+)?$"},
+                "tail": {"args_pattern": r"^(-n\d+|-f)?$"},
+                "grep": {"args_pattern": r"^(-[inrvE]|--color=auto|-E|-i|-n|-r|-v)?$"},
+                "find": {"restricted_paths": True, "no_exec": True},
+                "git": {"subcommands": {"status", "log", "diff", "add", "commit", "branch", "checkout", "merge", "pull", "push", "remote", "fetch", "stash", "show"}},
+                "python": {"blocked": True},  # Block direct python invocation
+                "python3": {"blocked": True},
+            }
+            
             executable = cmd_list[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
             if executable.endswith((".exe", ".com")):
                 executable = executable.rsplit(".", 1)[0]
@@ -1048,9 +1286,63 @@ class ToolLayer:
             rm_options = "".join(
                 arg.lstrip("-") for arg in arguments if arg.startswith("-")
             )
+            
+            # Reject if command uses env wrapper to bypass allowlist
+            if executable == "env":
+                if len(cmd_list) > 1:
+                    # Extract the actual command after env
+                    next_cmd = cmd_list[1].replace("\\", "/").rsplit("/", 1)[-1].lower()
+                    if next_cmd.endswith((".exe", ".com")):
+                        next_cmd = next_cmd.rsplit(".", 1)[0]
+                    if next_cmd in ALLOWED_COMMANDS and ALLOWED_COMMANDS[next_cmd].get("blocked"):
+                        return {"status": "error", "error": f"Blocked: '{next_cmd}' invocation via env is not allowed."}
+                return {"status": "error", "error": "Blocked: 'env' wrapper is not allowed."}
+            
+            # Check if command is explicitly blocked
+            if executable in ALLOWED_COMMANDS and ALLOWED_COMMANDS[executable].get("blocked"):
+                return {"status": "error", "error": f"Blocked: '{executable}' is not in the execution allowlist."}
+            
+            # Validate against allowlist
+            if executable not in ALLOWED_COMMANDS:
+                return {"status": "error", "error": f"Blocked: '{executable}' is not in the execution allowlist."}
+            
+            cmd_config = ALLOWED_COMMANDS[executable]
+            
+            # Validate max_args if specified
+            if "max_args" in cmd_config and len(arguments) > cmd_config["max_args"]:
+                return {"status": "error", "error": f"Blocked: '{executable}' exceeds maximum argument count."}
+            
+            # Validate args_pattern if specified
+            if "args_pattern" in cmd_config:
+                pattern = cmd_config["args_pattern"]
+                for arg in arguments:
+                    if not re.match(pattern, arg):
+                        return {"status": "error", "error": f"Blocked: invalid argument '{arg}' for '{executable}'."}
+            
+            # Validate restricted_paths for commands that require path confinement
+            if cmd_config.get("restricted_paths"):
+                for arg in arguments:
+                    if not arg.startswith("-") and not self._safe_path(arg):
+                        return {"status": "error", "error": f"Blocked: path '{arg}' is outside workspace."}
+            
+            # Validate no_recursive for rm/cat commands
+            if cmd_config.get("no_recursive"):
+                if "-R" in arguments or "-r" in arguments:
+                    return {"status": "error", "error": f"Blocked: recursive operation not allowed for '{executable}'."}
+            
+            # Validate git subcommands
+            if executable == "git":
+                if arguments and arguments[0] not in cmd_config.get("subcommands", set()):
+                    return {"status": "error", "error": f"Blocked: git subcommand '{arguments[0]}' is not allowed."}
+            
+            # Validate find restrictions
+            if executable == "find":
+                if "-exec" in arguments or "-delete" in arguments:
+                    return {"status": "error", "error": "Blocked: find -exec/-delete is not allowed."}
+            
+            # Check for dangerous argument patterns (fallback for non-allowlisted dangers)
             destructive = (
-                executable in self.SHELL_INTERPRETERS
-                or executable == "mkfs"
+                executable == "mkfs"
                 or executable.startswith("mkfs.")
                 or executable in {"shutdown", "reboot"}
                 or (
@@ -1063,7 +1355,16 @@ class ToolLayer:
                     and "f" in rm_options
                     and any(arg in {"/", "/*"} for arg in arguments)
                 )
-                or executable == self.DESTRUCTIVE_PATTERNS[-1]
+                or (
+                    executable == "chmod"
+                    and "R" in rm_options
+                    and any(arg == "777" for arg in arguments)
+                )
+                or (
+                    executable == "dd"
+                    and any(arg.startswith("if=/dev/") or arg.startswith("of=/dev/") for arg in arguments)
+                )
+                or any(pattern in command for pattern in ["|", "&&", "||", ";", "`", "$("])
             )
             if destructive:
                 return {"status": "error", "error": "Blocked: destructive pattern."}
@@ -1089,6 +1390,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def search_web(self, query: str) -> dict:
+        """
+        Search the web for results matching a query.
+        
+        Parameters:
+        	query (str): The search terms to submit.
+        
+        Returns:
+        	dict: A success response containing up to five results with titles, URLs, and truncated snippets, or an error response when the search cannot be completed.
+        """
         try:
             try:
                 from duckduckgo_search import DDGS
@@ -1109,12 +1419,127 @@ class ToolLayer:
             return {"status": "error", "error": f"Search: {e}"}
 
     def fetch_url(self, url: str) -> dict:
+        """
+        Fetch text content from an HTTP or HTTPS URL while blocking private and internal IP addresses.
+        
+        Parameters:
+        	url (str): The URL to fetch.
+        
+        Returns:
+        	dict: A success result containing truncated fetched text, or an error result describing why the request failed.
+        """
+        import socket
+        import ipaddress
+        from urllib.parse import urlparse
+        
+        class NoRedirectSession(requests.Session):
+            """Custom session that blocks automatic redirects to prevent SSRF via redirect chains."""
+            
+            def should_strip_auth(self, old_url, new_url):
+                # Always strip auth on redirects to prevent credential leakage
+                return True
+            
+            def rebuild_auth(self, prepared_request, response):
+                # Strip auth headers on redirects
+                headers = prepared_request.headers
+                for key in list(headers.keys()):
+                    if key.lower() in ('authorization', 'cookie'):
+                        del headers[key]
+        
         try:
             if not url.startswith(("http://", "https://")):
                 return {"status": "error", "error": "http(s) only."}
-            r = requests.get(
-                url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (RTS)"}
-            )
+            
+            # Validate initial URL
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+            
+            if not hostname:
+                return {"status": "error", "error": "Invalid URL"}
+            
+            # Resolve hostname and check IP addresses for initial URL
+            try:
+                ip_addresses = socket.getaddrinfo(hostname, None)
+                for addr_info in ip_addresses:
+                    ip_str = addr_info[4][0]
+                    try:
+                        ip = ipaddress.ip_address(ip_str)
+                        # Block private, loopback, link-local, and multicast ranges
+                        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                            logger.warning("Blocked SSRF attempt to %s (%s)", url, ip_str)
+                            return {"status": "error", "error": "Access to private/internal IPs blocked"}
+                    except ValueError:
+                        continue
+            except socket.gaierror:
+                return {"status": "error", "error": "DNS resolution failed"}
+            
+            # Create session with redirect blocking
+            session = NoRedirectSession()
+            session.max_redirects = 0  # Disable automatic redirects
+            
+            # Manually handle redirects with validation
+            current_url = url
+            max_redirects = 5
+            redirect_count = 0
+            
+            while redirect_count < max_redirects:
+                try:
+                    r = session.get(
+                        current_url, 
+                        timeout=15, 
+                        headers={"User-Agent": "Mozilla/5.0 (RTS)"},
+                        allow_redirects=False  # Never follow automatically
+                    )
+                    
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        # Redirect detected - validate target before following
+                        redirect_count += 1
+                        location = r.headers.get('Location')
+                        
+                        if not location:
+                            return {"status": "error", "error": "Redirect without Location header"}
+                        
+                        # Resolve relative URLs
+                        from urllib.parse import urljoin
+                        next_url = urljoin(current_url, location)
+                        next_parsed = urlparse(next_url)
+                        
+                        # Validate redirect scheme
+                        if next_parsed.scheme not in ('http', 'https'):
+                            return {"status": "error", "error": "Redirect to non-HTTP scheme blocked"}
+                        
+                        # Validate redirect hostname
+                        next_hostname = next_parsed.hostname
+                        if not next_hostname:
+                            return {"status": "error", "error": "Invalid redirect URL"}
+                        
+                        # Resolve and validate redirect target IP
+                        try:
+                            next_ips = socket.getaddrinfo(next_hostname, None)
+                            for addr_info in next_ips:
+                                ip_str = addr_info[4][0]
+                                try:
+                                    ip = ipaddress.ip_address(ip_str)
+                                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                                        logger.warning("Blocked SSRF redirect to %s (%s)", next_url, ip_str)
+                                        return {"status": "error", "error": "Redirect to private/internal IP blocked"}
+                                except ValueError:
+                                    continue
+                        except socket.gaierror:
+                            return {"status": "error", "error": "DNS resolution failed for redirect"}
+                        
+                        current_url = next_url
+                        continue
+                    
+                    # Non-redirect response - process it
+                    break
+                    
+                except requests.exceptions.TooManyRedirects:
+                    return {"status": "error", "error": "Too many redirects"}
+            
+            if redirect_count >= max_redirects:
+                return {"status": "error", "error": "Too many redirects"}
+            
             r.raise_for_status()
             if "html" in r.headers.get("content-type", "").lower():
                 from bs4 import BeautifulSoup
@@ -1224,16 +1649,19 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def speak_response(self, text: str) -> dict:
-        """Generate speech audio from text using TTS.
-
+        """
+        Generate speech audio for the supplied text.
+        
         Args:
             text: Text to synthesize.
-
+        
         Returns:
-            dict: Status with base64-encoded WAV audio.
+            A status dictionary containing base64-encoded WAV audio on success, or an
+            error message when synthesis fails.
         """
         try:
-            wav_data, status = self.tts.synthesize(text)
+            # Use asyncio.run since generate_wav is async
+            wav_data, status = asyncio.run(self.tts.generate_wav(text))
             if wav_data is None:
                 return {"status": "error", "error": f"TTS failed: {status}"}
             return {
@@ -1250,25 +1678,42 @@ class ToolLayer:
         Returns:
             dict: Status of brain, TTS, STT, and RAG components.
         """
+        # Check TTS availability by verifying dependencies and model can load
+        tts_available = False
+        try:
+            from kokoro_onnx import Kokoro
+            import soundfile
+            import numpy
+            
+            # Check if models exist
+            models_dir = self.tts.models_dir if hasattr(self, 'tts') and self.tts else None
+            if models_dir:
+                onnx_path = models_dir / "kokoro-v1.0.onnx"
+                voices_path = models_dir / "voices-v1.0.bin"
+                tts_available = onnx_path.exists() and voices_path.exists()
+        except (ImportError, AttributeError):
+            tts_available = False
+        
         return {
             "status": "success",
             "components": {
                 "brain": {"ready": self.brain.is_ready},
-                "tts": {"available": HAS_TTS if 'HAS_TTS' in globals() else False},
+                "tts": {"available": tts_available},
                 "stt": {"available": HAS_STT},
                 "rag": {"indexed_files": len(self.rag.cache) if hasattr(self.rag, 'cache') else 0},
             },
         }
 
     def copy_file(self, src: str, dst: str) -> dict:
-        """Copy a file within the workspace with atomic operation.
-
-        Args:
-            src: Source relative path.
-            dst: Destination relative path.
-
+        """
+        Copy a file from one workspace path to another.
+        
+        Parameters:
+            src (str): Source path relative to the workspace.
+            dst (str): Destination path relative to the workspace.
+        
         Returns:
-            dict: Status with bytes copied.
+            dict: Operation status, copied byte count, and destination on success, or an error description.
         """
         src_p, err = self._safe_path(src)
         if err or not src_p:
@@ -1280,23 +1725,32 @@ class ToolLayer:
             return {"status": "error", "error": f"Source not found: {src}"}
         try:
             dst_p.parent.mkdir(parents=True, exist_ok=True)
-            # Atomic copy: copy to temp, then rename
-            fd, tmp_path = tempfile.mkstemp(dir=dst_p.parent, prefix='.tmp_')
+            # Atomic copy: write to temp file in destination directory, then rename
+            fd, tmp_path = tempfile.mkstemp(dir=str(dst_p.parent), prefix='.tmp_copy_')
             try:
+                # Copy content with metadata preservation
                 with os.fdopen(fd, 'wb') as tmp_f:
                     with open(src_p, 'rb') as src_f:
-                        while chunk := src_f.read(self.FILE_CHUNK_SIZE):
+                        while chunk := src_f.read(8192):
                             tmp_f.write(chunk)
-                            tmp_f.flush()
+                    tmp_f.flush()
                     os.fsync(tmp_f.fileno())
-                shutil.copy2(src_p, tmp_path)  # Preserve metadata
+                
+                # Set metadata from source (timestamps and permission mode)
+                src_stat = src_p.stat()
+                os.utime(tmp_path, (src_stat.st_atime, src_stat.st_mtime))
+                os.chmod(tmp_path, stat.S_IMODE(src_stat.st_mode))
+                
+                # Atomic rename
                 os.replace(tmp_path, str(dst_p))
             except OSError:
+                # Clean up temp file on failure
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
                 raise
+            
             return {
                 "status": "success",
                 "bytes": src_p.stat().st_size,
@@ -1322,7 +1776,16 @@ class ToolLayer:
         if is_sensitive_path(str(p)):
             return {"status": "error", "error": "Blocked: sensitive path"}
         try:
+            # Derive file_id for RAG cleanup before deletion
+            rel_path = str(p.relative_to(self.workspace))
+            file_id = rel_path.replace("\\", "/").lstrip("/")
+            
             p.unlink()
+            
+            # Call RAGIndex.remove_file to properly remove chunks and rebuild index
+            if hasattr(self.rag, 'remove_file'):
+                self.rag.remove_file(file_id)
+            
             return {"status": "success", "deleted": path}
         except OSError as e:
             return {"status": "error", "error": str(e)}
@@ -1939,13 +2402,14 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def check_vulnerabilities(self, path: str = ".") -> dict:
-        """Check for security vulnerabilities using pip-audit or safety.
-
-        Args:
-            path: Path to scan (default: current directory).
-
+        """
+        Scan workspace dependencies for known security vulnerabilities.
+        
+        Parameters:
+            path (str): Retained for API compatibility; the scan uses the configured workspace.
+        
         Returns:
-            dict: Vulnerability report.
+            dict: A status report containing vulnerability findings, scanner output, or an error.
         """
         if self.sandbox_mode:
             return {"status": "error", "error": "Security scanning disabled in sandbox mode."}
@@ -1963,28 +2427,33 @@ class ToolLayer:
                 check=False,
             )
 
-            if proc.returncode == 0:
+            # Non-zero exit without valid JSON = error, not success
+            if proc.returncode != 0:
+                # Try to parse JSON anyway (pip-audit returns non-zero when vulns found)
+                try:
+                    vulns = json.loads(proc.stdout)
+                    if isinstance(vulns, list):
+                        return {
+                            "status": "success",
+                            "vulnerabilities": vulns,
+                            "count": len(vulns),
+                            "summary": f"Found {len(vulns)} vulnerability/vulnerabilities",
+                        }
+                except json.JSONDecodeError:
+                    pass
+                
+                # No valid JSON and non-zero exit = actual error
                 return {
-                    "status": "success",
-                    "vulnerabilities": [],
-                    "output": "No vulnerabilities found",
+                    "status": "error",
+                    "error": (proc.stderr or proc.stdout).strip()[-2000:] or "Scanner failed",
+                    "output": (proc.stdout or "").strip()[-2000:],
                 }
 
-            # Parse JSON output if available
-            try:
-                vulns = json.loads(proc.stdout)
-                return {
-                    "status": "success",
-                    "vulnerabilities": vulns,
-                    "count": len(vulns) if isinstance(vulns, list) else 0,
-                }
-            except json.JSONDecodeError:
-                pass
-
+            # Exit code 0 = no vulnerabilities
             return {
                 "status": "success",
-                "vulnerabilities": "Check output",
-                "output": (proc.stdout or proc.stderr).strip()[-2000:],
+                "vulnerabilities": [],
+                "output": "No vulnerabilities found",
             }
         except subprocess.TimeoutExpired:
             return {"status": "error", "error": "Security scan timeout"}
@@ -1992,6 +2461,20 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def execute(self, name: str, args: dict | None) -> dict:
+        """
+        Dispatch a named tool with validated arguments.
+        
+        Parameters:
+            name (str): Name of the tool to execute.
+            args (dict | None): Tool arguments, or None when no arguments are required.
+        
+        Returns:
+            dict: Tool result, or an error result for invalid arguments, unknown tools, or conversion failures.
+        """
+        # Validate args is a dict
+        if args is not None and not isinstance(args, dict):
+            return {"status": "error", "error": f"Invalid arguments type: expected dict, got {type(args).__name__}"}
+        
         args = args or {}
         try:
             if name == "run_shell":
@@ -2459,17 +2942,22 @@ class AgentSwarm:
         disable_tools: bool = False,
         custom_system_prompt: str = "",
     ) -> AsyncGenerator[str, None]:
-        """Stream main agent responses with failover support.
-
-        Args:
-            message: User input message
-            history: Conversation history
-            autopilot: Enable automatic tool usage
-            effort: Effort level ("low", "medium", "high")
-            response_queue: Queue for streaming responses
-            rag_context: Retrieved context from RAG
-            disable_tools: Disable tool usage
-            custom_system_prompt: Override system prompt
+        """
+        Stream agent responses with provider failover and optional tool execution.
+        
+        Parameters:
+            message (str): User message to process.
+            history (list | None): Prior conversation messages.
+            autopilot (bool): Whether automatic tool use is enabled.
+            effort (str): Response effort level, determining the maximum number of
+                agent rounds.
+            response_queue: Optional destination for streamed responses.
+            rag_context (str): Retrieved context to include in the conversation.
+            disable_tools (bool): Whether to disable tool calls.
+            custom_system_prompt (str): Optional replacement system prompt.
+        
+        Yields:
+            str: JSON-encoded stream, tool-result, error, or completion event.
         """
         # Import exception types at function scope for availability
         try:
@@ -2645,9 +3133,10 @@ class AgentSwarm:
                 continue
             if full_text:
                 messages.append({"role": "assistant", "content": full_text})
+                yield json.dumps({"type": "done"})
                 return
             yield json.dumps(
                 {"type": "stream", "content": "\n\n> ⚠️ Empty. Retrying…\n\n"}
             )
             continue
-        yield json.dumps({"type": "stream", "content": "\n\n> 🛑 Budget reached.\n\n"})
+        yield json.dumps({"type": "done"})
