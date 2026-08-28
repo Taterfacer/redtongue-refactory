@@ -1018,6 +1018,7 @@ class ToolLayer:
     )
     EXEC_TIMEOUT = 60
     RUFF_TIMEOUT = 30
+    MAX_FILE_SIZE: Final[int] = 1_000_000  # Match RAGIndex.MAX_FILE_SIZE
     MAX_OUTPUT = 100_000
     MAX_FETCH_OUTPUT = 8000
     MAX_SNIPPET = 400
@@ -1263,10 +1264,6 @@ class ToolLayer:
             # Check if command is explicitly blocked
             if executable in ALLOWED_COMMANDS and ALLOWED_COMMANDS[executable].get("blocked"):
                 return {"status": "error", "error": f"Blocked: '{executable}' is not in the execution allowlist."}
-            
-            # Check if command is in forbidden list (fallback)
-            if executable in self.FORBIDDEN_COMMANDS:
-                return {"status": "error", "error": f"Blocked: '{executable}' is not allowed."}
             
             # Validate against allowlist
             if executable not in ALLOWED_COMMANDS:
