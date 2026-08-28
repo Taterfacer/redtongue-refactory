@@ -1065,6 +1065,18 @@ class ToolLayer:
         assert p is not None
         if not p.exists() or not p.is_file():
             return {"status": "error", "error": f"Not found: {path}"}
+        
+        # Enforce bounded-size policy to avoid loading large files into memory
+        try:
+            file_size = p.stat().st_size
+            if file_size > self.MAX_FILE_SIZE:
+                return {
+                    "status": "error",
+                    "error": f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})"
+                }
+        except OSError as e:
+            return {"status": "error", "error": str(e)}
+        
         try:
             # Read entire file at once to avoid UTF-8 decoding issues at chunk boundaries
             return {
