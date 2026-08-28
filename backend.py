@@ -54,7 +54,7 @@ except ImportError:
 
 BASE_DIR: Final[Path] = Path(__file__).resolve().parent
 CONFIG_FILE: Final[Path] = BASE_DIR / "config.json"
-MASTER_KEY_SALT: Final[bytes] = b"red_tongue_v1_static_salt"
+SALT_FILE: Final[Path] = BASE_DIR / ".red_tongue_salt"
 PBKDF2_ITERATIONS: Final[int] = 200_000
 
 logger: Final[logging.Logger] = logging.getLogger("RedTongue.Backend")
@@ -91,11 +91,29 @@ AI_ROLE_PRESETS: dict[str, dict] = {
 def get_machine_key() -> bytes:
     """Derive a stable machine-specific encryption key using PBKDF2-SHA256.
 
+    Uses a per-install random salt stored in .red_tongue_salt file.
+    On first run, generates a new 32-byte random salt.
+
     Returns:
         bytes: URL-safe base64-encoded 32-byte key derived from machine identity.
     """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    # Load or generate per-install random salt
+    if SALT_FILE.exists():
+        try:
+            random_salt = SALT_FILE.read_bytes()
+            if len(random_salt) != 32:
+                raise ValueError("Invalid salt length")
+        except (OSError, ValueError):
+            random_salt = os.urandom(32)
+            SALT_FILE.write_bytes(random_salt)
+            SALT_FILE.chmod(0o600)
+    else:
+        random_salt = os.urandom(32)
+        SALT_FILE.write_bytes(random_salt)
+        SALT_FILE.chmod(0o600)
 
     try:
         identity = os.getlogin() + str(Path.home())
@@ -105,7 +123,7 @@ def get_machine_key() -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=MASTER_KEY_SALT,
+        salt=random_salt,
         iterations=PBKDF2_ITERATIONS,
     )
     return base64.urlsafe_b64encode(kdf.derive(identity.encode()))
