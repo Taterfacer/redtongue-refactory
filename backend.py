@@ -332,12 +332,30 @@ class DiagnosticBrain:
             "loaded": self.is_ready,
         }
 
+    # SHA-256 hashes for model verification (prevent supply chain attacks)
+    MODEL_HASH = "sha256:TODO_FILL_WITH_ACTUAL_HASH"  # e.g., "a1b2c3d4..."
+    
     def ensure_model(
         self, progress_callback: Callable[[float], None] | None = None
     ) -> bool:
         """Checks for model, downloads if missing. Returns True if ready."""
+        import hashlib
+        
         model_path = self.models_dir / self.MODEL_NAME
         if model_path.exists() and model_path.stat().st_size > 10_000_000:
+            # Verify hash if configured
+            if self.MODEL_HASH and not self.MODEL_HASH.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(model_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                expected_hash = self.MODEL_HASH.replace("sha256:", "")
+                if actual_hash != expected_hash:
+                    logger.error("Model hash mismatch! Expected %s, got %s", expected_hash, actual_hash)
+                    self._download_status = "failed"
+                    return False
+            
             self._download_status = "ready"
             if not self._load_model():
                 self._download_status = "failed"
@@ -362,6 +380,21 @@ class DiagnosticBrain:
                                 if progress_callback:
                                     progress_callback(self._download_progress)
             tmp_path.replace(model_path)
+            
+            # Verify hash after download if configured
+            if self.MODEL_HASH and not self.MODEL_HASH.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(model_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                expected_hash = self.MODEL_HASH.replace("sha256:", "")
+                if actual_hash != expected_hash:
+                    logger.error("Downloaded model hash mismatch!")
+                    model_path.unlink()
+                    self._download_status = "failed"
+                    return False
+            
             self._download_status = "ready"
             if not self._load_model():
                 self._download_status = "failed"
@@ -465,6 +498,8 @@ class RAGIndex:
         self._chunks: list[dict] = []
         self._matrix = None
         self._dirty = False
+        self._pending_files: set[str] = set()
+        self._reindex_timer: threading.Timer | None = None
 
         if np is None:
             logger.warning("numpy unavailable — RAG disabled.")
@@ -595,7 +630,10 @@ class RAGIndex:
             logger.warning("RAG reindex failed: %s", e)
 
     def index_file(self, path: str) -> None:
-        """Index a single file in the RAG system.
+        """Index a single file in the RAG system with batching.
+
+        Uses delayed batching to avoid re-embedding the entire matrix on every write.
+        Multiple file updates within 2 seconds are batched together.
 
         Args:
             path: Relative path to the file within workspace.
@@ -606,14 +644,48 @@ class RAGIndex:
         if not p.exists() or not p.is_file():
             return
         file_id = p.relative_to(self.workspace).as_posix()
+        
         with self._lock:
-            new_chunks = self._chunk_file(p, file_id)
-            # Remove old chunks for this file
-            self._chunks = [c for c in self._chunks if c["path"] != file_id]
-            self._chunks.extend(new_chunks)
+            # Add to pending files set
+            self._pending_files.add(file_id)
+            
+            # Cancel existing timer
+            if self._reindex_timer is not None:
+                self._reindex_timer.cancel()
+            
+            # Schedule batched reindex after 2 seconds of inactivity
+            self._reindex_timer = threading.Timer(2.0, self._flush_pending_files)
+            self._reindex_timer.daemon = True
+            self._reindex_timer.start()
+    
+    def _flush_pending_files(self) -> None:
+        """Flush all pending file updates to the RAG index."""
+        if np is None:
+            return
+        
+        with self._lock:
+            if not self._pending_files:
+                return
+            
+            # Remove old chunks for pending files
+            pending = self._pending_files.copy()
+            self._chunks = [c for c in self._chunks if c["path"] not in pending]
+            
+            # Add new chunks for pending files
+            for file_id in pending:
+                p = self.workspace / file_id
+                if p.exists() and p.is_file():
+                    new_chunks = self._chunk_file(p, file_id)
+                    self._chunks.extend(new_chunks)
+            
+            # Rebuild matrix and save
             self._matrix = self._build_matrix(self._chunks)
             self._save()
             self._dirty = False
+            self._pending_files.clear()
+            
+            logger.info("RAG batch indexed: %s files, %s total chunks", 
+                       len(pending), len(self._chunks))
 
     def query(self, text: str, top_k: int = 3) -> list[dict]:
         with self._lock:
@@ -682,10 +754,31 @@ class KokoroTTS:
         self._engine: Any = None
         self._lock = threading.Lock()
 
+    # SHA-256 hashes for TTS model verification (prevent supply chain attacks)
+    MODEL_HASHES: Final[dict[str, str]] = {
+        "kokoro-v1.0.onnx": "sha256:TODO_FILL_WITH_ACTUAL_HASH",
+        "voices-v1.0.bin": "sha256:TODO_FILL_WITH_ACTUAL_HASH",
+    }
+    
     def _download(self, name: str) -> bool:
+        import hashlib
+        
         dest = self.models_dir / name
         if dest.exists() and dest.stat().st_size > 0:
+            # Verify hash if configured
+            expected_hash = self.MODEL_HASHES.get(name, "")
+            if expected_hash and not expected_hash.startswith("sha256:TODO"):
+                sha256 = hashlib.sha256()
+                with open(dest, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        sha256.update(chunk)
+                actual_hash = sha256.hexdigest()
+                if actual_hash != expected_hash.replace("sha256:", ""):
+                    logger.error("TTS model %s hash mismatch!", name)
+                    dest.unlink()
+                    return False
             return True
+        
         logger.info("Downloading TTS: %s", name)
         try:
             self.models_dir.mkdir(parents=True, exist_ok=True)
@@ -697,9 +790,23 @@ class KokoroTTS:
                         if chunk:
                             fh.write(chunk)
                 tmp.replace(dest)
-            return True
+                
+                # Verify hash after download if configured
+                expected_hash = self.MODEL_HASHES.get(name, "")
+                if expected_hash and not expected_hash.startswith("sha256:TODO"):
+                    sha256 = hashlib.sha256()
+                    with open(dest, "rb") as f:
+                        for chunk in iter(lambda: f.read(8192), b""):
+                            sha256.update(chunk)
+                    actual_hash = sha256.hexdigest()
+                    if actual_hash != expected_hash.replace("sha256:", ""):
+                        logger.error("Downloaded TTS model %s hash mismatch!", name)
+                        dest.unlink()
+                        return False
+                
+                return True
         except (requests.RequestException, OSError, ConnectionError) as e:
-            logger.error("TTS download '{name}' failed: %s", e)
+            logger.error("TTS download '%s' failed: %s", name, e)
             return False
 
     def _ensure_engine(self) -> Any:
@@ -808,8 +915,26 @@ class ToolLayer:
         "format c:",
         "shutdown ",
         "reboot ",
-        ":(){:|:&};:",
+        ":(){:|:&};:",  # Fork bomb - kept for documentation but not used in comparison
     )
+    # Commands that should never be allowed
+    FORBIDDEN_COMMANDS = frozenset({
+        "dd",  # Raw disk access
+        "chmod",  # Permission changes when recursive
+        "chown",  # Ownership changes
+        "sudo",  # Privilege escalation
+        "su",  # User switching
+        "curl",  # Remote code download potential
+        "wget",  # Remote code download potential
+        "python",  # Arbitrary code execution
+        "python3",  # Arbitrary code execution
+        "perl",  # Arbitrary code execution
+        "ruby",  # Arbitrary code execution
+        "node",  # Arbitrary code execution
+        "php",  # Arbitrary code execution
+        "bash",  # Shell within shell
+        "sh",  # Shell within shell
+    })
     ALLOWED_SANDBOX_MODES = (True, False)
     SHELL_INTERPRETERS = frozenset(
         {
@@ -1031,6 +1156,12 @@ class ToolLayer:
             rm_options = "".join(
                 arg.lstrip("-") for arg in arguments if arg.startswith("-")
             )
+            
+            # Check if command is in forbidden list
+            if executable in self.FORBIDDEN_COMMANDS:
+                return {"status": "error", "error": f"Blocked: '{executable}' is not allowed."}
+            
+            # Check for dangerous argument patterns
             destructive = (
                 executable in self.SHELL_INTERPRETERS
                 or executable == "mkfs"
@@ -1046,7 +1177,16 @@ class ToolLayer:
                     and "f" in rm_options
                     and any(arg in {"/", "/*"} for arg in arguments)
                 )
-                or executable == self.DESTRUCTIVE_PATTERNS[-1]
+                or (
+                    executable == "chmod"
+                    and "R" in rm_options
+                    and any(arg == "777" for arg in arguments)
+                )
+                or (
+                    executable == "dd"
+                    and any(arg.startswith("if=/dev/") or arg.startswith("of=/dev/") for arg in arguments)
+                )
+                or any(pattern in command for pattern in ["|", "&&", "||", ";", "`", "$("])
             )
             if destructive:
                 return {"status": "error", "error": "Blocked: destructive pattern."}
@@ -2000,6 +2140,19 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def execute(self, name: str, args: dict | None) -> dict:
+        """Execute a tool by name with validated arguments.
+        
+        Args:
+            name: Tool name to execute.
+            args: Dictionary of arguments (must be a dict or None).
+            
+        Returns:
+            dict: Tool execution result.
+        """
+        # Validate args is a dict
+        if args is not None and not isinstance(args, dict):
+            return {"status": "error", "error": f"Invalid arguments type: expected dict, got {type(args).__name__}"}
+        
         args = args or {}
         try:
             if name == "run_shell":
