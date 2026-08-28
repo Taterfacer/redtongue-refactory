@@ -831,18 +831,19 @@ class KokoroTTS:
         with self._lock:
             if self._engine is not None:
                 return self._engine
+            
+            # Download/verify all required assets (hash check even for existing files)
+            onnx_ok = self._download("kokoro-v1.0.onnx")
+            voices_ok = self._download("voices-v1.0.bin")
+            
+            if not (onnx_ok and voices_ok):
+                raise RuntimeError(
+                    f"TTS models missing or invalid. Place in: {self.models_dir}"
+                )
+            
             onnx_path = self.models_dir / "kokoro-v1.0.onnx"
             voices_path = self.models_dir / "voices-v1.0.bin"
-            models_exist = onnx_path.exists() and voices_path.exists()
-            if not models_exist:
-                downloaded = (
-                    self._download("kokoro-v1.0.onnx")
-                    and self._download("voices-v1.0.bin")
-                )
-                if not downloaded:
-                    raise RuntimeError(
-                        f"TTS models missing. Place in: {self.models_dir}"
-                    )
+            
             from kokoro_onnx import Kokoro
 
             logger.info("Loading Kokoro TTS...")
@@ -1150,7 +1151,7 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def run_shell(self, command: str) -> dict:
-        """Execute shell command with security hardening."""
+        """Execute shell command with security hardening using allowlist approach."""
         import shlex
 
         if not command or not command.strip():
@@ -1167,6 +1168,21 @@ class ToolLayer:
                     "error": "Shell execution is disabled in sandbox mode.",
                 }
 
+            # Allowlist of permitted commands with validated argument forms
+            ALLOWED_COMMANDS = {
+                "ls": {"args_pattern": r"^(-[laRth]|--(?:color|help))?$"},
+                "dir": {"args_pattern": r"^(-[laRth]|--(?:color|help))?$"},
+                "pwd": {},
+                "cat": {"max_args": 5, "no_recursive": True},
+                "head": {"args_pattern": r"^(-n\d+)?$"},
+                "tail": {"args_pattern": r"^(-n\d+|-f)?$"},
+                "grep": {"args_pattern": r"^(-[inrvE]|--color=auto|-E|-i|-n|-r|-v)?$"},
+                "find": {"restricted_paths": True, "no_exec": True},
+                "git": {"subcommands": {"status", "log", "diff", "add", "commit", "branch", "checkout", "merge", "pull", "push", "remote", "fetch", "stash", "show"}},
+                "python": {"blocked": True},  # Block direct python invocation
+                "python3": {"blocked": True},
+            }
+            
             executable = cmd_list[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
             if executable.endswith((".exe", ".com")):
                 executable = executable.rsplit(".", 1)[0]
@@ -1175,14 +1191,44 @@ class ToolLayer:
                 arg.lstrip("-") for arg in arguments if arg.startswith("-")
             )
             
-            # Check if command is in forbidden list
+            # Reject if command uses env wrapper to bypass allowlist
+            if executable == "env":
+                if len(cmd_list) > 1:
+                    # Extract the actual command after env
+                    next_cmd = cmd_list[1].replace("\\", "/").rsplit("/", 1)[-1].lower()
+                    if next_cmd.endswith((".exe", ".com")):
+                        next_cmd = next_cmd.rsplit(".", 1)[0]
+                    if next_cmd in ALLOWED_COMMANDS and ALLOWED_COMMANDS[next_cmd].get("blocked"):
+                        return {"status": "error", "error": f"Blocked: '{next_cmd}' invocation via env is not allowed."}
+                return {"status": "error", "error": "Blocked: 'env' wrapper is not allowed."}
+            
+            # Check if command is explicitly blocked
+            if executable in ALLOWED_COMMANDS and ALLOWED_COMMANDS[executable].get("blocked"):
+                return {"status": "error", "error": f"Blocked: '{executable}' is not in the execution allowlist."}
+            
+            # Check if command is in forbidden list (fallback)
             if executable in self.FORBIDDEN_COMMANDS:
                 return {"status": "error", "error": f"Blocked: '{executable}' is not allowed."}
             
-            # Check for dangerous argument patterns
+            # Validate against allowlist
+            if executable not in ALLOWED_COMMANDS:
+                return {"status": "error", "error": f"Blocked: '{executable}' is not in the execution allowlist."}
+            
+            cmd_config = ALLOWED_COMMANDS[executable]
+            
+            # Validate git subcommands
+            if executable == "git":
+                if arguments and arguments[0] not in cmd_config.get("subcommands", set()):
+                    return {"status": "error", "error": f"Blocked: git subcommand '{arguments[0]}' is not allowed."}
+            
+            # Validate find restrictions
+            if executable == "find":
+                if "-exec" in arguments or "-delete" in arguments:
+                    return {"status": "error", "error": "Blocked: find -exec/-delete is not allowed."}
+            
+            # Check for dangerous argument patterns (fallback for non-allowlisted dangers)
             destructive = (
-                executable in self.SHELL_INTERPRETERS
-                or executable == "mkfs"
+                executable == "mkfs"
                 or executable.startswith("mkfs.")
                 or executable in {"shutdown", "reboot"}
                 or (

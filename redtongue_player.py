@@ -345,7 +345,6 @@ class PlaylistWidget(QListWidget):
             # Also remove from the parent's playlist model (B17 fix)
             if hasattr(self.parent(), 'remove_track_at'):
                 self.parent().remove_track_at(row)
-            self.parent().remove_track_at(row)
 
 
 class RTButton(QPushButton):
@@ -494,6 +493,8 @@ class MediaSuiteWidget(QWidget):
 
         # Playlist
         self.playlist_widget = PlaylistWidget(self)
+        # Connect playlist drop signal to handle_playlist_drop (B18 fix)
+        self.playlist_widget.files_dropped.connect(self.handle_playlist_drop)
         bottom_splitter.addWidget(self.playlist_widget)
 
         # Action Buttons
@@ -723,7 +724,15 @@ class MediaSuiteWidget(QWidget):
         """Loads the saved playlist from JSON, skipping non-existent files (B26 fix)."""
         saved = load_json(PLAYLIST_FILE, {"playlist": [], "current_index": -1})
         valid_paths = []
-        for p in saved.get("playlist", []):
+        saved_current_path = None
+        current_idx = saved.get("current_index", -1)
+        playlist_list = saved.get("playlist", [])
+        
+        # Get the saved current path if index is valid
+        if 0 <= current_idx < len(playlist_list):
+            saved_current_path = Path(playlist_list[current_idx])
+        
+        for p in playlist_list:
             path = Path(p)
             if path.exists():
                 valid_paths.append(path)
@@ -733,9 +742,20 @@ class MediaSuiteWidget(QWidget):
         
         if valid_paths:
             self._add_files(valid_paths)
-            idx = saved.get("current_index", -1)
-            if 0 <= idx < len(self.playlist):
-                self._play_index(idx)
+            # Remap saved current_index to compacted valid_paths index
+            if saved_current_path and saved_current_path.exists():
+                try:
+                    remapped_idx = valid_paths.index(saved_current_path)
+                    self._play_index(remapped_idx)
+                except ValueError:
+                    # Fallback to first track if saved path not found
+                    self._play_index(0)
+            elif 0 <= current_idx < len(valid_paths):
+                # Fallback: use original index if still valid
+                self._play_index(current_idx)
+            else:
+                # Final fallback: play first track
+                self._play_index(0)
 
 
 # ==============================================================================
