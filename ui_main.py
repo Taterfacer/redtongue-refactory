@@ -22,10 +22,10 @@ from PyQt6.QtGui import (
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
+    QFileSystemModel,
 )
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QFileSystemModel,
     QFrame,
     QHBoxLayout,
     QHeaderView,

@@ -1,42 +1,4 @@
 ```
-# Compiled Python files
-*.pyc
 __pycache__/
-
-# UI/qt files
-*.ui
-*.qrc
-
-# Build/dist directories
-build/
-dist/
-*.egg-info/
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Logs
-*.log
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Coverage reports
-.coverage
-coverage/
-htmlcov/
-
-# OS files
-.DS_Store
-Thumbs.db
+*.pyc
 ```
