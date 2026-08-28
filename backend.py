@@ -1362,20 +1362,34 @@ class ToolLayer:
         """
         import socket
         import ipaddress
+        from urllib.parse import urlparse
+        
+        class NoRedirectSession(requests.Session):
+            """Custom session that blocks automatic redirects to prevent SSRF via redirect chains."""
+            
+            def should_strip_auth(self, old_url, new_url):
+                # Always strip auth on redirects to prevent credential leakage
+                return True
+            
+            def rebuild_auth(self, prepared_request, response):
+                # Strip auth headers on redirects
+                headers = prepared_request.headers
+                for key in list(headers.keys()):
+                    if key.lower() in ('authorization', 'cookie'):
+                        del headers[key]
         
         try:
             if not url.startswith(("http://", "https://")):
                 return {"status": "error", "error": "http(s) only."}
             
-            # Parse URL and check for SSRF risks
-            from urllib.parse import urlparse
+            # Validate initial URL
             parsed = urlparse(url)
             hostname = parsed.hostname
             
             if not hostname:
                 return {"status": "error", "error": "Invalid URL"}
             
-            # Resolve hostname and check IP address
+            # Resolve hostname and check IP addresses for initial URL
             try:
                 ip_addresses = socket.getaddrinfo(hostname, None)
                 for addr_info in ip_addresses:
@@ -1391,9 +1405,73 @@ class ToolLayer:
             except socket.gaierror:
                 return {"status": "error", "error": "DNS resolution failed"}
             
-            r = requests.get(
-                url, timeout=15, headers={"User-Agent": "Mozilla/5.0 (RTS)"}
-            )
+            # Create session with redirect blocking
+            session = NoRedirectSession()
+            session.max_redirects = 0  # Disable automatic redirects
+            
+            # Manually handle redirects with validation
+            current_url = url
+            max_redirects = 5
+            redirect_count = 0
+            
+            while redirect_count < max_redirects:
+                try:
+                    r = session.get(
+                        current_url, 
+                        timeout=15, 
+                        headers={"User-Agent": "Mozilla/5.0 (RTS)"},
+                        allow_redirects=False  # Never follow automatically
+                    )
+                    
+                    if r.status_code in (301, 302, 303, 307, 308):
+                        # Redirect detected - validate target before following
+                        redirect_count += 1
+                        location = r.headers.get('Location')
+                        
+                        if not location:
+                            return {"status": "error", "error": "Redirect without Location header"}
+                        
+                        # Resolve relative URLs
+                        from urllib.parse import urljoin
+                        next_url = urljoin(current_url, location)
+                        next_parsed = urlparse(next_url)
+                        
+                        # Validate redirect scheme
+                        if not next_parsed.scheme in ('http', 'https'):
+                            return {"status": "error", "error": "Redirect to non-HTTP scheme blocked"}
+                        
+                        # Validate redirect hostname
+                        next_hostname = next_parsed.hostname
+                        if not next_hostname:
+                            return {"status": "error", "error": "Invalid redirect URL"}
+                        
+                        # Resolve and validate redirect target IP
+                        try:
+                            next_ips = socket.getaddrinfo(next_hostname, None)
+                            for addr_info in next_ips:
+                                ip_str = addr_info[4][0]
+                                try:
+                                    ip = ipaddress.ip_address(ip_str)
+                                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+                                        logger.warning("Blocked SSRF redirect to %s (%s)", next_url, ip_str)
+                                        return {"status": "error", "error": "Redirect to private/internal IP blocked"}
+                                except ValueError:
+                                    continue
+                        except socket.gaierror:
+                            return {"status": "error", "error": "DNS resolution failed for redirect"}
+                        
+                        current_url = next_url
+                        continue
+                    
+                    # Non-redirect response - process it
+                    break
+                    
+                except requests.exceptions.TooManyRedirects:
+                    return {"status": "error", "error": "Too many redirects"}
+            
+            if redirect_count >= max_redirects:
+                return {"status": "error", "error": "Too many redirects"}
+            
             r.raise_for_status()
             if "html" in r.headers.get("content-type", "").lower():
                 from bs4 import BeautifulSoup
@@ -1532,11 +1610,27 @@ class ToolLayer:
         Returns:
             dict: Status of brain, TTS, STT, and RAG components.
         """
+        # Check TTS availability by verifying dependencies and model can load
+        tts_available = False
+        try:
+            from kokoro_onnx import Kokoro
+            import soundfile
+            import numpy
+            
+            # Check if models exist
+            models_dir = self.tts.models_dir if hasattr(self, 'tts') and self.tts else None
+            if models_dir:
+                onnx_path = models_dir / "kokoro-v1.0.onnx"
+                voices_path = models_dir / "voices-v1.0.bin"
+                tts_available = onnx_path.exists() and voices_path.exists()
+        except (ImportError, AttributeError):
+            tts_available = False
+        
         return {
             "status": "success",
             "components": {
                 "brain": {"ready": self.brain.is_ready},
-                "tts": {"available": True},  # TTS is available via KokoroTTS class
+                "tts": {"available": tts_available},
                 "stt": {"available": HAS_STT},
                 "rag": {"indexed_files": len(self.rag.cache) if hasattr(self.rag, 'cache') else 0},
             },
@@ -1563,8 +1657,31 @@ class ToolLayer:
             return {"status": "error", "error": f"Source not found: {src}"}
         try:
             dst_p.parent.mkdir(parents=True, exist_ok=True)
-            # Atomic copy using shutil.copy2 directly (preserves metadata)
-            shutil.copy2(src_p, str(dst_p))
+            # Atomic copy: write to temp file in destination directory, then rename
+            fd, tmp_path = tempfile.mkstemp(dir=str(dst_p.parent), prefix='.tmp_copy_')
+            try:
+                # Copy content with metadata preservation
+                with os.fdopen(fd, 'wb') as tmp_f:
+                    with open(src_p, 'rb') as src_f:
+                        while chunk := src_f.read(8192):
+                            tmp_f.write(chunk)
+                    tmp_f.flush()
+                    os.fsync(tmp_f.fileno())
+                
+                # Set metadata from source
+                src_stat = src_p.stat()
+                os.utime(tmp_path, (src_stat.st_atime, src_stat.st_mtime))
+                
+                # Atomic rename
+                os.replace(tmp_path, str(dst_p))
+            except OSError:
+                # Clean up temp file on failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+            
             return {
                 "status": "success",
                 "bytes": src_p.stat().st_size,
@@ -2232,31 +2349,33 @@ class ToolLayer:
                 check=False,
             )
 
-            if proc.returncode == 0:
+            # Non-zero exit without valid JSON = error, not success
+            if proc.returncode != 0:
+                # Try to parse JSON anyway (pip-audit returns non-zero when vulns found)
+                try:
+                    vulns = json.loads(proc.stdout)
+                    if isinstance(vulns, list):
+                        return {
+                            "status": "success",
+                            "vulnerabilities": vulns,
+                            "count": len(vulns),
+                            "summary": f"Found {len(vulns)} vulnerability/vulnerabilities",
+                        }
+                except json.JSONDecodeError:
+                    pass
+                
+                # No valid JSON and non-zero exit = actual error
                 return {
-                    "status": "success",
-                    "vulnerabilities": [],
-                    "output": "No vulnerabilities found",
+                    "status": "error",
+                    "error": (proc.stderr or proc.stdout).strip()[-2000:] or "Scanner failed",
+                    "output": (proc.stdout or "").strip()[-2000:],
                 }
 
-            # Parse JSON output if available
-            try:
-                vulns = json.loads(proc.stdout)
-                if isinstance(vulns, list):
-                    return {
-                        "status": "success",
-                        "vulnerabilities": vulns,
-                        "count": len(vulns),
-                        "summary": f"Found {len(vulns)} vulnerability/vulnerabilities",
-                    }
-            except json.JSONDecodeError:
-                pass
-
+            # Exit code 0 = no vulnerabilities
             return {
                 "status": "success",
                 "vulnerabilities": [],
-                "output": (proc.stdout or proc.stderr).strip()[-2000:],
-                "note": "Raw output from security scanner",
+                "output": "No vulnerabilities found",
             }
         except subprocess.TimeoutExpired:
             return {"status": "error", "error": "Security scan timeout"}
