@@ -1,39 +1,13 @@
 ```
-# Python
+# Compiled Python files
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# Compiled and build artifacts
-*.o
-*.obj
-*.so
-*.a
-*.dll
-*.exe
-*.out
+# Dependency directories
+.red_tongue_index/
 
-# Dependencies
-.venv/
-venv/
+# Environment files
 .env
 .env.local
 *.env.*
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Editors
-.vscode/
-.idea/
-
-# Distribution / packaging
-dist/
-build/
-*.tar.gz
-*.whl
-*.egg-info/
 ```
