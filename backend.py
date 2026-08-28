@@ -1391,6 +1391,240 @@ class ToolLayer:
         except OSError as e:
             return {"status": "error", "error": str(e)}
 
+
+    # ==========================================================================
+    # Advanced Agentic Features (Phase 3)
+    # ==========================================================================
+
+    def get_system_resources(self) -> dict:
+        """Get current system resource usage optimized for HDD/8GB RAM setup.
+        
+        Returns:
+            dict: CPU, RAM, Disk I/O metrics with HDD-aware thresholds.
+        """
+        try:
+            import psutil
+        except ImportError:
+            return {
+                "status": "success",
+                "cpu_percent": 0,
+                "memory_used_mb": 0,
+                "memory_total_mb": 8192,
+                "memory_percent": 0,
+                "disk_read_mb": 0,
+                "disk_write_mb": 0,
+                "warning": "psutil not installed",
+            }
+        
+        cpu = psutil.cpu_percent(interval=0.5)
+        mem = psutil.virtual_memory()
+        mem_used = mem.used / (1024 * 1024)
+        mem_total = mem.total / (1024 * 1024)
+        mem_percent = mem.percent
+        
+        disk_io = psutil.disk_io_counters()
+        disk_read = (disk_io.read_bytes or 0) / (1024 * 1024)
+        disk_write = (disk_io.write_bytes or 0) / (1024 * 1024)
+        
+        warning = None
+        if mem_percent > 75:
+            warning = "High memory usage - risk of HDD swapping"
+        
+        return {
+            "status": "success",
+            "cpu_percent": cpu,
+            "memory_used_mb": round(mem_used, 2),
+            "memory_total_mb": round(mem_total, 2),
+            "memory_percent": mem_percent,
+            "disk_read_mb": round(disk_read, 2),
+            "disk_write_mb": round(disk_write, 2),
+            "swap_warning": warning,
+        }
+
+    def check_resource_limits(self, operation: str = "default") -> dict:
+        """Check if an operation is within safe resource limits."""
+        try:
+            import psutil
+        except ImportError:
+            return {"status": "success", "approved": True, "limits": "unknown"}
+        
+        mem = psutil.virtual_memory()
+        mem_available_gb = mem.available / (1024 * 1024 * 1024)
+        
+        limits = {
+            "file_read": {"max_size_mb": 500},
+            "code_exec": {"max_ram_mb": 2048, "timeout_sec": 30},
+            "model_load": {"max_vram_gb": 3.5, "offload_cpu": True},
+            "rag_index": {"max_files": 1000, "batch_size": 50},
+            "default": {"max_ram_mb": 4096, "timeout_sec": 60},
+        }
+        
+        op_limit = limits.get(operation, limits["default"])
+        
+        if mem_available_gb < 1.0:
+            return {
+                "status": "success",
+                "approved": False,
+                "reason": f"Critical: Only {mem_available_gb:.2f}GB RAM available",
+                "limits": op_limit,
+            }
+        
+        return {
+            "status": "success",
+            "approved": True,
+            "available_ram_gb": round(mem_available_gb, 2),
+            "limits": op_limit,
+        }
+
+    def delegate_task(self, role: str, task: str, context: dict | None = None) -> dict:
+        """Delegate a sub-task to a specialized agent role."""
+        if not hasattr(self, '_delegated_tasks'):
+            self._delegated_tasks = {}
+        
+        task_id = f"{role}_{int(time.time())}"
+        self._delegated_tasks[task_id] = {
+            "role": role,
+            "task": task,
+            "context": context or {},
+            "status": "pending",
+            "created": time.time(),
+        }
+        
+        logger.info("Delegated task %s to role %s", task_id, role)
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "role": role,
+            "message": f"Task delegated to {role} agent",
+        }
+
+    def cancel_task(self, task_id: str) -> dict:
+        """Cancel a delegated task."""
+        if not hasattr(self, '_delegated_tasks'):
+            return {"status": "error", "error": "No tasks found"}
+        
+        if task_id not in self._delegated_tasks:
+            return {"status": "error", "error": f"Task not found: {task_id}"}
+        
+        self._delegated_tasks[task_id]["status"] = "cancelled"
+        return {"status": "success", "task_id": task_id, "message": "Task cancelled"}
+
+    def save_session_state(self, key: str, value: Any) -> dict:
+        """Persist session state with atomic write."""
+        state_file = Path(self.workspace) / ".session_state.json"
+        
+        state = {}
+        if state_file.exists():
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                state = {}
+        
+        state[key] = value
+        
+        try:
+            fd, tmp_path = tempfile.mkstemp(dir=state_file.parent, prefix='.tmp_state_')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(state, f, indent=2, default=str)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, str(state_file))
+            except OSError:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+            
+            return {"status": "success", "key": key, "message": "State persisted"}
+        except (OSError, TypeError) as e:
+            return {"status": "error", "error": str(e)}
+
+    def load_session_state(self, key: str | None = None) -> dict:
+        """Load persisted session state."""
+        state_file = Path(self.workspace) / ".session_state.json"
+        
+        if not state_file.exists():
+            return {"status": "success", "state": {}}
+        
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            if key:
+                return {"status": "success", "key": key, "value": state.get(key)}
+            return {"status": "success", "state": state}
+        except (json.JSONDecodeError, OSError) as e:
+            return {"status": "error", "error": str(e)}
+
+    def create_checkpoint(self, name: str = "manual") -> dict:
+        """Create a workspace checkpoint with Git tag."""
+        if self.sandbox_mode:
+            return {"status": "error", "error": "Checkpointing disabled in sandbox mode."}
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        tag_name = f"checkpoint_{name}_{timestamp}"
+        
+        try:
+            subprocess.run(["git", "add", "-A"], cwd=self.workspace, capture_output=True, timeout=30, check=False)
+            
+            result = subprocess.run(
+                ["git", "commit", "-m", f"Checkpoint: {name}"],
+                cwd=self.workspace, capture_output=True, text=True, timeout=30, check=False
+            )
+            
+            if result.returncode != 0 and "nothing to commit" not in result.stdout:
+                return {"status": "error", "error": "Git commit failed", "output": result.stdout + result.stderr}
+            
+            tag_result = subprocess.run(
+                ["git", "tag", tag_name],
+                cwd=self.workspace, capture_output=True, text=True, timeout=10, check=False
+            )
+            
+            if tag_result.returncode != 0:
+                return {"status": "error", "error": "Tag creation failed", "output": tag_result.stdout + tag_result.stderr}
+            
+            return {"status": "success", "tag": tag_name, "message": f"Checkpoint created: {tag_name}"}
+        except subprocess.TimeoutExpired:
+            return {"status": "error", "error": "Checkpoint timeout"}
+        except (OSError, subprocess.SubprocessError) as e:
+            return {"status": "error", "error": str(e)}
+
+    def chain_commands(self, commands: list[dict]) -> dict:
+        """Execute a sequence of tool commands with dependency passing."""
+        results = []
+        context = {}
+        
+        for i, cmd in enumerate(commands):
+            tool_name = cmd.get("tool")
+            args = cmd.get("args", {})
+            
+            resolved_args = {}
+            for k, v in args.items():
+                if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+                    var_name = v[2:-1]
+                    resolved_args[k] = context.get(var_name)
+                else:
+                    resolved_args[k] = v
+            
+            result = self.execute(tool_name, resolved_args)
+            results.append({"step": i, "tool": tool_name, "result": result})
+            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "failed_at_step": i,
+                    "results": results,
+                    "error": f"Step {i} ({tool_name}) failed: {result.get('error')}",
+                }
+            
+            if result.get("status") == "success":
+                context[f"step_{i}_output"] = result.get("output")
+                if "path" in result:
+                    context[f"step_{i}_path"] = result["path"]
+        
+        return {"status": "success", "steps_completed": len(results), "results": results}
+
+
     # ==========================================================================
     # Development Workflow Tools (Phase 2)
     # ==========================================================================
@@ -1844,6 +2078,34 @@ class ToolLayer:
                 )
             if name == "check_vulnerabilities":
                 return self.check_vulnerabilities(str(args.get("path", ".")))
+            # Advanced agentic features (Phase 3)
+            if name == "get_system_resources":
+                return self.get_system_resources()
+            if name == "check_resource_limits":
+                return self.check_resource_limits(str(args.get("operation", "default")))
+            if name == "delegate_task":
+                return self.delegate_task(
+                    str(args.get("role", "assistant")),
+                    str(args.get("task", "")),
+                    args.get("context")
+                )
+            if name == "cancel_task":
+                return self.cancel_task(str(args.get("task_id", "")))
+            if name == "save_session_state":
+                return self.save_session_state(
+                    str(args.get("key", "")),
+                    args.get("value")
+                )
+            if name == "load_session_state":
+                key = args.get("key")
+                return self.load_session_state(str(key) if key else None)
+            if name == "create_checkpoint":
+                return self.create_checkpoint(str(args.get("name", "manual")))
+            if name == "chain_commands":
+                commands = args.get("commands", [])
+                if isinstance(commands, list):
+                    return self.chain_commands(commands)
+                return {"status": "error", "error": "commands must be a list"}
             return {"status": "error", "error": f"Unknown: {name}"}
         except (ValueError, TypeError) as e:
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
