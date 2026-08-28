@@ -22,6 +22,7 @@ def is_ignored(path: str) -> bool:
 
 class GitIgnoreTests(unittest.TestCase):
     def test_compiled_python_files_are_ignored_at_any_depth(self) -> None:
+        """Verify that compiled Python files and cache contents are ignored at every directory depth."""
         ignored_paths = (
             "module.pyc",
             "package/module.pyc",

@@ -300,13 +300,19 @@ class PlaylistWidget(QListWidget):
             event.ignore()
 
     def dragMoveEvent(self, event):
+        """Accept drag movements containing file URLs and reject other drag data."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dropEvent(self, event: QDropEvent):
-        """Handles drag and drop of audio files (B18 fix: removed parent coupling)."""
+        """
+        Collect supported media files from dropped local files and directories, then emit them through the drop signal.
+        
+        Parameters:
+        	event (QDropEvent): The drop event containing local file or directory URLs.
+        """
         urls = event.mimeData().urls()
         paths = []
         for url in urls:
@@ -325,6 +331,11 @@ class PlaylistWidget(QListWidget):
     files_dropped = pyqtSignal(list)  # B18 fix: custom signal for decoupling
 
     def _show_context_menu(self, pos):
+        """Display the playlist context menu for removing selected items or clearing the playlist.
+        
+        Parameters:
+        	pos: The position where the context menu is displayed.
+        """
         menu = QMenu(self)
         menu.setStyleSheet(f"""
             QMenu {{ background-color: {C_PANEL}; color: {C_WHITE}; border: 1px solid {C_BORDER}; }}
@@ -337,7 +348,9 @@ class PlaylistWidget(QListWidget):
         menu.exec(self.mapToGlobal(pos))
 
     def _remove_selected(self):
-        """Remove selected items from both the widget and the underlying playlist (B17 fix)."""
+        """
+        Remove selected items from the widget and the underlying playlist.
+        """
         # Remove in reverse order to maintain correct row indices
         for item in reversed(self.selectedItems()):
             row = self.row(item)
@@ -714,6 +727,7 @@ class MediaSuiteWidget(QWidget):
 
     # --- Persistence ---
     def _save_playlist(self):
+        """Persist the current playlist paths and selected track index to the playlist file."""
         data = {
             "playlist": [str(p) for p in self.playlist],
             "current_index": self.current_index,
@@ -721,8 +735,11 @@ class MediaSuiteWidget(QWidget):
         atomic_write_json(PLAYLIST_FILE, data)
 
     def _load_saved_playlist(self):
-        """Loads the saved playlist from JSON, skipping non-existent files (B26 fix)."""
+        """
+        Load the saved playlist, omit files that no longer exist, and restore the saved track when valid.
+        """
         saved = load_json(PLAYLIST_FILE, {"playlist": [], "current_index": -1})
+        saved_paths = [Path(p) for p in saved.get("playlist", [])]
         valid_paths = []
         saved_current_path = None
         current_idx = saved.get("current_index", -1)
@@ -741,6 +758,14 @@ class MediaSuiteWidget(QWidget):
                 print(f"Playlist: File no longer exists, skipping: {path}")
         
         if valid_paths:
+            restore_index = 0
+            saved_index = saved.get("current_index", -1)
+            if isinstance(saved_index, int) and 0 <= saved_index < len(saved_paths):
+                saved_current_path = saved_paths[saved_index]
+                try:
+                    restore_index = valid_paths.index(saved_current_path)
+                except ValueError:
+                    pass
             self._add_files(valid_paths)
             # Remap saved current_index to compacted valid_paths index
             if saved_current_path and saved_current_path.exists():

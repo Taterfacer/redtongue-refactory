@@ -533,6 +533,7 @@ class RefactoryMainWindow(QMainWindow):
         self.status_bar.showMessage("Ready.")
 
     def _build_menus(self):
+        """Build the main window's File and Decks menus with their associated actions and shortcuts."""
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
@@ -562,7 +563,9 @@ class RefactoryMainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+L"), self, self.lint_panel._start_lint)
 
     def _open_project(self):
-        """Opens a project folder and updates file tree view."""
+        """
+        Open a project folder and rebind the workspace tools to it.
+        """
         path = QFileDialog.getExistingDirectory(self, "Open Project Folder")
         if path:
             self.current_project = Path(path)
