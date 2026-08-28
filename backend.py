@@ -762,6 +762,10 @@ class RAGIndex:
 
     def close(self) -> None:
         with self._lock:
+            # Cancel pending reindex timer to prevent execution after shutdown
+            if self._reindex_timer is not None:
+                self._reindex_timer.cancel()
+                self._reindex_timer = None
             if self._dirty:
                 self._save()
                 self._dirty = False
@@ -1446,7 +1450,7 @@ class ToolLayer:
                         next_parsed = urlparse(next_url)
                         
                         # Validate redirect scheme
-                        if not next_parsed.scheme in ('http', 'https'):
+                        if next_parsed.scheme not in ('http', 'https'):
                             return {"status": "error", "error": "Redirect to non-HTTP scheme blocked"}
                         
                         # Validate redirect hostname
@@ -1677,9 +1681,10 @@ class ToolLayer:
                     tmp_f.flush()
                     os.fsync(tmp_f.fileno())
                 
-                # Set metadata from source
+                # Set metadata from source (timestamps and permission mode)
                 src_stat = src_p.stat()
                 os.utime(tmp_path, (src_stat.st_atime, src_stat.st_mtime))
+                os.chmod(tmp_path, stat.S_IMODE(src_stat.st_mode))
                 
                 # Atomic rename
                 os.replace(tmp_path, str(dst_p))
@@ -1716,7 +1721,22 @@ class ToolLayer:
         if is_sensitive_path(str(p)):
             return {"status": "error", "error": "Blocked: sensitive path"}
         try:
+            # Derive file_id for RAG cleanup before deletion
+            rel_path = str(p.relative_to(self.workspace))
+            file_id = rel_path.replace("\\", "/").lstrip("/")
+            
             p.unlink()
+            
+            # Queue RAG index cleanup for the deleted file
+            if hasattr(self.rag, '_pending_files'):
+                self.rag._pending_files.discard(file_id)  # Remove from pending
+            # Remove existing chunks for this file
+            if hasattr(self.rag, '_chunks') and file_id in self.rag._chunks:
+                del self.rag._chunks[file_id]
+                # Rebuild matrix and persist
+                if hasattr(self.rag, '_save'):
+                    self.rag._save()
+            
             return {"status": "success", "deleted": path}
         except OSError as e:
             return {"status": "error", "error": str(e)}
