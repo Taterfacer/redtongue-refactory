@@ -139,11 +139,10 @@ class DiscoveryResult:
 
 def discover_files(cfg: Any, store: Any, log: logging.Logger) -> DiscoveryResult:
     """
-    Discovers Python files in the workspace.
-    Uses lexicographic sorting to optimize sequential reads on mechanical HDDs.
+    Discover Python files in the project workspace and identify files changed since the stored manifest.
     
-    B8 fix: Only reports files that actually changed based on size:mtime hash comparison
-    against stored manifest, instead of marking all files as changed.
+    Returns:
+        DiscoveryResult: Discovered file metadata, changed relative paths, total file size, and discovery duration.
     """
     t0 = time.monotonic()
     files: list[DiscoveredFile] = []

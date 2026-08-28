@@ -89,13 +89,11 @@ AI_ROLE_PRESETS: dict[str, dict] = {
 
 @lru_cache(maxsize=1)
 def get_machine_key() -> bytes:
-    """Derive a stable machine-specific encryption key using PBKDF2-SHA256.
-
-    Uses a per-install random salt stored in .red_tongue_salt file.
-    On first run, generates a new 32-byte random salt.
-
+    """
+    Derives a stable encryption key from the user identity, home directory, and a per-installation salt.
+    
     Returns:
-        bytes: URL-safe base64-encoded 32-byte key derived from machine identity.
+        bytes: URL-safe base64-encoded derived key.
     """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -344,6 +342,12 @@ class DiagnosticBrain:
 
     @property
     def status(self) -> dict:
+        """
+        Report the current model download and loading state.
+        
+        Returns:
+        	dict: A mapping containing the download status, progress, and readiness state.
+        """
         return {
             "status": self._download_status,
             "progress": self._download_progress,
@@ -356,7 +360,15 @@ class DiagnosticBrain:
     def ensure_model(
         self, progress_callback: Callable[[float], None] | None = None
     ) -> bool:
-        """Checks for model, downloads if missing. Returns True if ready."""
+        """
+        Ensure the diagnostic model is available and loaded.
+        
+        Parameters:
+            progress_callback (Callable[[float], None] | None): Optional callback receiving download progress percentages.
+        
+        Returns:
+            bool: `True` if the model is verified and loaded, `False` otherwise.
+        """
         import hashlib
         
         model_path = self.models_dir / self.MODEL_NAME
@@ -510,6 +522,12 @@ class RAGIndex:
     )
 
     def __init__(self, workspace: str) -> None:
+        """
+        Initialize a workspace-scoped retrieval index and load existing data when available.
+        
+        Parameters:
+        	workspace (str): Path to the workspace whose files will be indexed.
+        """
         self.workspace = Path(workspace)
         self.index_dir = self.workspace / ".red_tongue_index"
         self._lock = threading.RLock()
@@ -648,13 +666,10 @@ class RAGIndex:
             logger.warning("RAG reindex failed: %s", e)
 
     def index_file(self, path: str) -> None:
-        """Index a single file in the RAG system with batching.
-
-        Uses delayed batching to avoid re-embedding the entire matrix on every write.
-        Multiple file updates within 2 seconds are batched together.
-
+        """Schedule a workspace file for batched RAG reindexing after a period of inactivity.
+        
         Args:
-            path: Relative path to the file within workspace.
+            path: Relative path to the file within the workspace.
         """
         if np is None:
             return
@@ -706,6 +721,16 @@ class RAGIndex:
                        len(pending), len(self._chunks))
 
     def query(self, text: str, top_k: int = 3) -> list[dict]:
+        """
+        Search the indexed workspace for chunks relevant to the query.
+        
+        Parameters:
+            text (str): Query text used to find relevant indexed chunks.
+            top_k (int): Maximum number of matching chunks to return.
+        
+        Returns:
+            list[dict]: Matching chunks with their paths, text, and similarity scores.
+        """
         with self._lock:
             if np is None or self._matrix is None or not self._chunks:
                 return []
@@ -768,6 +793,11 @@ class KokoroTTS:
     }
 
     def __init__(self, models_dir: Path | None = None) -> None:
+        """Initialize the text-to-speech model manager.
+        
+        Parameters:
+            models_dir (Path | None): Directory for model assets, or the default models directory when omitted.
+        """
         self.models_dir = Path(models_dir) if models_dir else BASE_DIR / "models"
         self._engine: Any = None
         self._lock = threading.Lock()
@@ -779,6 +809,15 @@ class KokoroTTS:
     }
     
     def _download(self, name: str) -> bool:
+        """
+        Download a TTS model asset when it is unavailable and verify its integrity when configured.
+        
+        Parameters:
+            name (str): Name of the model asset to download.
+        
+        Returns:
+            bool: `True` if the asset exists and passes verification, `False` if downloading or verification fails.
+        """
         import hashlib
         
         dest = self.models_dir / name
@@ -828,6 +867,15 @@ class KokoroTTS:
             return False
 
     def _ensure_engine(self) -> Any:
+        """
+        Ensure the Kokoro text-to-speech engine is available and initialized.
+        
+        Returns:
+        	Any: The initialized Kokoro engine.
+        
+        Raises:
+        	RuntimeError: If the required model files cannot be downloaded.
+        """
         with self._lock:
             if self._engine is not None:
                 return self._engine
@@ -1001,16 +1049,15 @@ class ToolLayer:
         return p, None
 
     def read_file(self, path: str, chunked: bool = False) -> dict:
-        """Read a file from the workspace with security validation.
-
-        For large files on HDD, supports chunked reading to reduce memory pressure.
-
-        Args:
-            path: Relative path within workspace.
-            chunked: If True, returns content in 64KB chunks for large files.
-
+        """
+        Read a UTF-8 text file within the workspace after path validation.
+        
+        Parameters:
+            path (str): Relative path to the file within the workspace.
+            chunked (bool): Retained for compatibility; does not alter the returned content.
+        
         Returns:
-            dict: Status dictionary with 'output' key (string or list of chunks).
+            dict: A success result containing the file text under ``output``, or an error result.
         """
         p, err = self._safe_path(path)
         if err:
@@ -1150,7 +1197,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def run_shell(self, command: str) -> dict:
-        """Execute shell command with security hardening."""
+        """
+        Execute a workspace command without shell interpretation.
+        
+        Parameters:
+            command (str): Command text to parse and execute.
+        
+        Returns:
+            dict: Execution status, output or error details, and return code when the command runs.
+        """
         import shlex
 
         if not command or not command.strip():
@@ -1230,6 +1285,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def search_web(self, query: str) -> dict:
+        """
+        Search the web for results matching a query.
+        
+        Parameters:
+        	query (str): The search terms to submit.
+        
+        Returns:
+        	dict: A success response containing up to five results with titles, URLs, and truncated snippets, or an error response when the search cannot be completed.
+        """
         try:
             try:
                 from duckduckgo_search import DDGS
@@ -1250,13 +1314,14 @@ class ToolLayer:
             return {"status": "error", "error": f"Search: {e}"}
 
     def fetch_url(self, url: str) -> dict:
-        """Fetch content from a URL with SSRF protection.
+        """
+        Fetch text content from an HTTP or HTTPS URL while blocking private and internal IP addresses.
         
-        Args:
-            url: The URL to fetch (http/https only).
-            
+        Parameters:
+        	url (str): The URL to fetch.
+        
         Returns:
-            dict: Status with fetched text content.
+        	dict: A success result containing truncated fetched text, or an error result describing why the request failed.
         """
         import socket
         import ipaddress
@@ -1401,13 +1466,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def speak_response(self, text: str) -> dict:
-        """Generate speech audio from text using TTS.
-
+        """
+        Generate speech audio for the supplied text.
+        
         Args:
             text: Text to synthesize.
-
+        
         Returns:
-            dict: Status with base64-encoded WAV audio.
+            A status dictionary containing base64-encoded WAV audio on success, or an
+            error message when synthesis fails.
         """
         try:
             # Use asyncio.run since generate_wav is async
@@ -1439,14 +1506,15 @@ class ToolLayer:
         }
 
     def copy_file(self, src: str, dst: str) -> dict:
-        """Copy a file within the workspace with atomic operation.
-
-        Args:
-            src: Source relative path.
-            dst: Destination relative path.
-
+        """
+        Copy a file from one workspace path to another.
+        
+        Parameters:
+            src (str): Source path relative to the workspace.
+            dst (str): Destination path relative to the workspace.
+        
         Returns:
-            dict: Status with bytes copied.
+            dict: Operation status, copied byte count, and destination on success, or an error description.
         """
         src_p, err = self._safe_path(src)
         if err or not src_p:
@@ -2102,13 +2170,14 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def check_vulnerabilities(self, path: str = ".") -> dict:
-        """Check for security vulnerabilities using pip-audit or safety.
-
-        Args:
-            path: Path to scan (default: current directory).
-
+        """
+        Scan workspace dependencies for known security vulnerabilities.
+        
+        Parameters:
+            path (str): Retained for API compatibility; the scan uses the configured workspace.
+        
         Returns:
-            dict: Vulnerability report with findings and recommendations.
+            dict: A status report containing vulnerability findings, scanner output, or an error.
         """
         if self.sandbox_mode:
             return {"status": "error", "error": "Security scanning disabled in sandbox mode."}
@@ -2158,14 +2227,15 @@ class ToolLayer:
             return {"status": "error", "error": str(e)}
 
     def execute(self, name: str, args: dict | None) -> dict:
-        """Execute a tool by name with validated arguments.
+        """
+        Dispatch a named tool with validated arguments.
         
-        Args:
-            name: Tool name to execute.
-            args: Dictionary of arguments (must be a dict or None).
-            
+        Parameters:
+            name (str): Name of the tool to execute.
+            args (dict | None): Tool arguments, or None when no arguments are required.
+        
         Returns:
-            dict: Tool execution result.
+            dict: Tool result, or an error result for invalid arguments, unknown tools, or conversion failures.
         """
         # Validate args is a dict
         if args is not None and not isinstance(args, dict):
@@ -2638,17 +2708,22 @@ class AgentSwarm:
         disable_tools: bool = False,
         custom_system_prompt: str = "",
     ) -> AsyncGenerator[str, None]:
-        """Stream main agent responses with failover support.
-
-        Args:
-            message: User input message
-            history: Conversation history
-            autopilot: Enable automatic tool usage
-            effort: Effort level ("low", "medium", "high")
-            response_queue: Queue for streaming responses
-            rag_context: Retrieved context from RAG
-            disable_tools: Disable tool usage
-            custom_system_prompt: Override system prompt
+        """
+        Stream agent responses with provider failover and optional tool execution.
+        
+        Parameters:
+            message (str): User message to process.
+            history (list | None): Prior conversation messages.
+            autopilot (bool): Whether automatic tool use is enabled.
+            effort (str): Response effort level, determining the maximum number of
+                agent rounds.
+            response_queue: Optional destination for streamed responses.
+            rag_context (str): Retrieved context to include in the conversation.
+            disable_tools (bool): Whether to disable tool calls.
+            custom_system_prompt (str): Optional replacement system prompt.
+        
+        Yields:
+            str: JSON-encoded stream, tool-result, error, or completion event.
         """
         # Import exception types at function scope for availability
         try:
