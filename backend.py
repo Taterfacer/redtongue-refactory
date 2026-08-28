@@ -248,6 +248,11 @@ def save_config(cfg: dict) -> None:
         logger.warning("Config save failed: %s", e)
 
 
+# Cached sets for sensitive path checking (performance optimization)
+_SENSITIVE_NAMES: Final[frozenset] = frozenset({".env", ".gitconfig", "id_rsa"})
+_SENSITIVE_PARTS: Final[frozenset] = frozenset({".git", "__pycache__", "node_modules"})
+
+
 def is_sensitive_path(path: Path | str) -> bool:
     """Check if a path points to sensitive files or directories.
 
@@ -257,13 +262,19 @@ def is_sensitive_path(path: Path | str) -> bool:
     Returns:
         bool: True if path is sensitive, False otherwise.
     """
-    name = Path(path).name.lower()
-    if name in (".env", ".gitconfig", "id_rsa") or name.startswith(".env"):
+    # Cache Path parsing to avoid redundant operations
+    p = Path(path)
+    name = p.name.lower()
+    if name in _SENSITIVE_NAMES or name.startswith(".env"):
         return True
-    for part in Path(path).parts:
-        if part.lower() in (".git", "__pycache__", "node_modules"):
-            return True
-    return False
+    # Use cached set for faster membership testing
+    return any(part.lower() in _SENSITIVE_PARTS for part in p.parts)
+
+
+@lru_cache(maxsize=256)
+def _get_resolved_workspace(workspace: str) -> Path:
+    """Cached workspace resolution for repeated path validations."""
+    return Path(workspace).resolve(strict=True)
 
 
 def validate_path(path: str, workspace: str) -> Path:
@@ -280,8 +291,10 @@ def validate_path(path: str, workspace: str) -> Path:
         ValueError: If path escapes workspace boundary.
         OSError: If workspace does not exist.
     """
-    ws = Path(workspace).resolve(strict=True)
-    p = (ws / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+    ws = _get_resolved_workspace(workspace)
+    # Avoid redundant Path object creation
+    p_path = Path(path)
+    p = (ws / p_path).resolve() if not p_path.is_absolute() else p_path.resolve()
     p.relative_to(ws)
     return p
 
