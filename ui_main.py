@@ -842,9 +842,6 @@ class RefactoryMainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Create toolbar
-        self._build_toolbar()
-
         # Main content splitter
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.splitter, 1)
@@ -922,6 +919,9 @@ class RefactoryMainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("✓ Ready — RedTongue Refactory v4.0.0")
+
+        # Create toolbar (after all components are initialized)
+        self._build_toolbar()
 
     def _build_toolbar(self):
         """Builds the main toolbar with quick access actions."""
