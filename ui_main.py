@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QScrollArea,
     QGroupBox,
+    QMenu,
 )
 
 from backend import AgentSwarm, SpeechToText, ToolLayer, load_config
