@@ -23,6 +23,7 @@ from PyQt6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QFileSystemModel,
+    QIcon,
 )
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -42,42 +43,370 @@ from PyQt6.QtWidgets import (
     QTreeView,
     QVBoxLayout,
     QWidget,
+    QToolBar,
+    QTabWidget,
+    QScrollArea,
+    QGroupBox,
+    QMenu,
 )
 
 from backend import AgentSwarm, SpeechToText, ToolLayer, load_config
 
 # ==============================================================================
-# THEME CONSTANTS
+# THEME CONSTANTS - Modern Dark Theme with Silver/Red/Black accents
 # ==============================================================================
-C_BG = "#0d0d0d"
-C_PANEL = "#121212"
-C_INPUT = "#1a1a1a"
-C_BORDER = "#222222"
-C_RED = "#8b0000"
-C_RED_HOVER = "#a52a2a"
-C_WHITE = "#e0e0e0"
-C_GRAY = "#888888"
-C_GREEN = "#2ecc71"
+C_BG_PRIMARY = "#1a1a1a"       # Main background
+C_BG_SECONDARY = "#252525"     # Panel backgrounds
+C_BG_TERTIARY = "#2d2d2d"      # Input fields
+C_SURFACE = "#333333"          # Elevated surfaces
+C_BORDER = "#404040"           # Borders
+C_BORDER_LIGHT = "#555555"     # Light borders
+
+# Accent colors
+C_RED_PRIMARY = "#e74c3c"      # Primary red
+C_RED_DARK = "#c0392b"         # Dark red
+C_RED_LIGHT = "#ff6b6b"        # Light red
+C_SILVER = "#bdc3c7"           # Silver
+C_SILVER_DARK = "#95a5a6"      # Dark silver
+C_SILVER_LIGHT = "#ecf0f1"     # Light silver
+
+# Text colors
+C_TEXT_PRIMARY = "#ffffff"     # Primary text
+C_TEXT_SECONDARY = "#b0b0b0"   # Secondary text
+C_TEXT_MUTED = "#707070"       # Muted text
+
+# Status colors
+C_SUCCESS = "#27ae60"
+C_WARNING = "#f39c12"
+C_ERROR = "#e74c3c"
+C_INFO = "#3498db"
 
 QSS = f"""
-QMainWindow, QWidget {{ background-color: {C_BG}; color: {C_WHITE}; font-family: 'Segoe UI', sans-serif; font-size: 13px; }}
-QFrame#Panel {{ background-color: {C_PANEL}; border: 1px solid {C_BORDER}; border-radius: 4px; }}
-QTreeView {{ background-color: #0a0a0a; border: 1px solid {C_BORDER}; color: {C_WHITE}; }}
-QTreeView::item:selected {{ background-color: {C_RED}; color: {C_WHITE}; }}
-QTabWidget::pane {{ border: 1px solid {C_BORDER}; background: {C_BG}; }}
-QTabBar::tab {{ background: {C_INPUT}; color: {C_GRAY}; padding: 8px 16px; border: 1px solid {C_BORDER}; border-bottom: none; }}
-QTabBar::tab:selected {{ background: {C_BG}; color: {C_WHITE}; border-bottom: 2px solid {C_RED}; }}
-QPushButton {{ background-color: {C_INPUT}; color: {C_WHITE}; border: 1px solid {C_BORDER}; border-radius: 4px; padding: 6px 16px; }}
-QPushButton:hover {{ background-color: #2a2a2a; }}
-QPushButton#Primary {{ background-color: {C_RED}; color: {C_WHITE}; border: 1px solid {C_RED_HOVER}; }}
-QPushButton#Primary:hover {{ background-color: {C_RED_HOVER}; }}
-QLineEdit {{ background-color: {C_INPUT}; border: 1px solid {C_BORDER}; color: {C_WHITE}; padding: 6px; border-radius: 4px; }}
-QTableWidget {{ background-color: #0a0a0a; gridline-color: {C_BORDER}; border: 1px solid {C_BORDER}; }}
-QTableWidget::item:selected {{ background-color: {C_RED}; }}
-QHeaderView::section {{ background-color: {C_INPUT}; color: {C_GRAY}; padding: 4px; border: 1px solid {C_BORDER}; }}
-QScrollBar:vertical {{ background: {C_BG}; width: 10px; }}
-QScrollBar::handle:vertical {{ background: #333333; border-radius: 5px; }}
-QStatusBar {{ background-color: #0a0a0a; color: {C_GRAY}; border-top: 1px solid {C_BORDER}; }}
+/* Main Window */
+QMainWindow {{ 
+    background-color: {C_BG_PRIMARY}; 
+    color: {C_TEXT_PRIMARY}; 
+    font-family: 'Segoe UI', 'Roboto', sans-serif; 
+    font-size: 13px; 
+}}
+
+/* Panels and Frames */
+QFrame#Panel {{ 
+    background-color: {C_BG_SECONDARY}; 
+    border: 1px solid {C_BORDER}; 
+    border-radius: 6px; 
+}}
+QFrame#ControlPanel {{
+    background-color: {C_BG_SECONDARY};
+    border: 1px solid {C_BORDER};
+    border-radius: 8px;
+}}
+
+/* Menu Bar */
+QMenuBar {{
+    background-color: {C_BG_PRIMARY};
+    color: {C_TEXT_PRIMARY};
+    border-bottom: 1px solid {C_BORDER};
+    padding: 4px;
+}}
+QMenuBar::item:selected {{
+    background-color: {C_RED_PRIMARY};
+    border-radius: 4px;
+}}
+QMenu {{
+    background-color: {C_BG_SECONDARY};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    padding: 8px;
+}}
+QMenu::item:selected {{
+    background-color: {C_RED_PRIMARY};
+    border-radius: 4px;
+}}
+
+/* ToolBar */
+QToolBar {{
+    background-color: {C_BG_SECONDARY};
+    border: none;
+    border-bottom: 1px solid {C_BORDER};
+    padding: 6px;
+    spacing: 6px;
+    icon-size: 20px;
+}}
+QToolBar::separator {{
+    width: 1px;
+    background: {C_BORDER};
+    margin: 4px 8px;
+}}
+QToolButton {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: {C_TEXT_PRIMARY};
+}}
+QToolButton:hover {{
+    background-color: {C_SURFACE};
+    border: 1px solid {C_BORDER_LIGHT};
+}}
+QToolButton:pressed {{
+    background-color: {C_RED_PRIMARY};
+}}
+
+/* Tree View (File Explorer) */
+QTreeView {{ 
+    background-color: {C_BG_PRIMARY}; 
+    border: 1px solid {C_BORDER}; 
+    color: {C_TEXT_PRIMARY}; 
+    border-radius: 4px;
+    padding: 4px;
+}}
+QTreeView::item {{
+    padding: 4px;
+    border-radius: 3px;
+}}
+QTreeView::item:hover {{
+    background-color: {C_SURFACE};
+}}
+QTreeView::item:selected {{ 
+    background-color: {C_RED_PRIMARY}; 
+    color: {C_TEXT_PRIMARY}; 
+}}
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {{
+    border-image: none;
+    image: none;
+}}
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings {{
+    border-image: none;
+    image: none;
+}}
+
+/* Tab Widget */
+QTabWidget::pane {{ 
+    border: 1px solid {C_BORDER}; 
+    background: {C_BG_PRIMARY}; 
+    border-radius: 6px;
+}}
+QTabBar::tab {{ 
+    background: {C_BG_TERTIARY}; 
+    color: {C_TEXT_SECONDARY}; 
+    padding: 10px 20px; 
+    border: 1px solid {C_BORDER}; 
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+}}
+QTabBar::tab:hover {{
+    background: {C_SURFACE};
+    color: {C_TEXT_PRIMARY};
+}}
+QTabBar::tab:selected {{ 
+    background: {C_BG_SECONDARY}; 
+    color: {C_TEXT_PRIMARY}; 
+    border-bottom: 2px solid {C_RED_PRIMARY};
+}}
+
+/* Buttons */
+QPushButton {{ 
+    background-color: {C_BG_TERTIARY}; 
+    color: {C_TEXT_PRIMARY}; 
+    border: 1px solid {C_BORDER}; 
+    border-radius: 6px; 
+    padding: 8px 20px;
+    font-weight: 500;
+}}
+QPushButton:hover {{ 
+    background-color: {C_SURFACE};
+    border: 1px solid {C_BORDER_LIGHT};
+}}
+QPushButton:pressed {{
+    background-color: {C_RED_PRIMARY};
+    border: 1px solid {C_RED_PRIMARY};
+}}
+QPushButton#Primary {{ 
+    background-color: {C_RED_PRIMARY}; 
+    color: {C_TEXT_PRIMARY}; 
+    border: 1px solid {C_RED_PRIMARY};
+    font-weight: 600;
+}}
+QPushButton#Primary:hover {{ 
+    background-color: {C_RED_LIGHT}; 
+    border: 1px solid {C_RED_LIGHT};
+}}
+QPushButton#Primary:pressed {{
+    background-color: {C_RED_DARK};
+}}
+QPushButton#Secondary {{
+    background-color: transparent;
+    border: 1px solid {C_SILVER_DARK};
+    color: {C_SILVER};
+}}
+QPushButton#Secondary:hover {{
+    background-color: {C_SILVER_DARK};
+    color: {C_TEXT_PRIMARY};
+}}
+QPushButton#Danger {{
+    background-color: {C_RED_DARK};
+    border: 1px solid {C_RED_DARK};
+}}
+QPushButton#Danger:hover {{
+    background-color: {C_RED_PRIMARY};
+}}
+
+/* Line Edit */
+QLineEdit {{ 
+    background-color: {C_BG_TERTIARY}; 
+    border: 1px solid {C_BORDER}; 
+    color: {C_TEXT_PRIMARY}; 
+    padding: 8px 12px; 
+    border-radius: 6px;
+    selection-background-color: {C_RED_PRIMARY};
+}}
+QLineEdit:focus {{
+    border: 1px solid {C_RED_PRIMARY};
+}}
+QLineEdit:placeholder {{
+    color: {C_TEXT_MUTED};
+}}
+
+/* Plain Text Edit */
+QPlainTextEdit {{
+    background-color: {C_BG_PRIMARY};
+    color: {C_TEXT_PRIMARY};
+    border: 1px solid {C_BORDER};
+    border-radius: 4px;
+    padding: 8px;
+    selection-background-color: {C_RED_PRIMARY};
+}}
+QPlainTextEdit:focus {{
+    border: 1px solid {C_RED_PRIMARY};
+}}
+
+/* Table Widget */
+QTableWidget {{ 
+    background-color: {C_BG_PRIMARY}; 
+    gridline-color: {C_BORDER}; 
+    border: 1px solid {C_BORDER};
+    border-radius: 4px;
+}}
+QTableWidget::item {{
+    padding: 6px;
+}}
+QTableWidget::item:selected {{ 
+    background-color: {C_RED_PRIMARY}; 
+    color: {C_TEXT_PRIMARY};
+}}
+QHeaderView::section {{ 
+    background-color: {C_BG_TERTIARY}; 
+    color: {C_TEXT_SECONDARY}; 
+    padding: 8px; 
+    border: 1px solid {C_BORDER};
+    font-weight: 600;
+}}
+
+/* Scroll Bars */
+QScrollBar:vertical {{ 
+    background: {C_BG_PRIMARY}; 
+    width: 10px; 
+    border-radius: 5px;
+}}
+QScrollBar::handle:vertical {{ 
+    background: {C_SURFACE}; 
+    border-radius: 5px;
+    min-height: 20px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {C_SILVER_DARK};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+QScrollBar:horizontal {{ 
+    background: {C_BG_PRIMARY}; 
+    height: 10px; 
+    border-radius: 5px;
+}}
+QScrollBar::handle:horizontal {{ 
+    background: {C_SURFACE}; 
+    border-radius: 5px;
+    min-width: 20px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {C_SILVER_DARK};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+}}
+
+/* Status Bar */
+QStatusBar {{ 
+    background-color: {C_BG_SECONDARY}; 
+    color: {C_TEXT_SECONDARY}; 
+    border-top: 1px solid {C_BORDER};
+    padding: 4px;
+}}
+
+/* Group Box */
+QGroupBox {{
+    background-color: {C_BG_SECONDARY};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 12px;
+    font-weight: 600;
+    color: {C_SILVER};
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 8px;
+    color: {C_RED_PRIMARY};
+}}
+
+/* Labels */
+QLabel {{
+    color: {C_TEXT_PRIMARY};
+}}
+QLabel#Heading {{
+    font-size: 16px;
+    font-weight: 700;
+    color: {C_SILVER_LIGHT};
+}}
+QLabel#SubHeading {{
+    font-size: 14px;
+    font-weight: 600;
+    color: {C_SILVER};
+}}
+QLabel#Muted {{
+    color: {C_TEXT_MUTED};
+    font-size: 12px;
+}}
+
+/* Combo Box */
+QComboBox {{
+    background-color: {C_BG_TERTIARY};
+    border: 1px solid {C_BORDER};
+    color: {C_TEXT_PRIMARY};
+    padding: 6px 12px;
+    border-radius: 6px;
+}}
+QComboBox:hover {{
+    border: 1px solid {C_BORDER_LIGHT};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 20px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {C_BG_SECONDARY};
+    border: 1px solid {C_BORDER};
+    selection-background-color: {C_RED_PRIMARY};
+}}
+
+/* Progress indicators, checkboxes, etc. can be added as needed */
 """
 
 
@@ -245,7 +574,7 @@ class CodeEditor(QPlainTextEdit):
         super().__init__(parent)
         self.setFont(QFont("Consolas", 11))
         self.setStyleSheet(
-            f"background-color: {C_BG}; color: {C_WHITE}; border: none; selection-background-color: {C_RED};"
+            f"background-color: {C_BG_PRIMARY}; color: {C_TEXT_PRIMARY}; border: 1px solid {C_BORDER}; selection-background-color: {C_RED_PRIMARY};"
         )
         self.highlighter = PythonHighlighter(self.document())
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -283,18 +612,24 @@ class ChatPanel(QWidget):
     def _build_ui(self):
         """Builds the chat panel UI with display area and input controls."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
+        # Chat display area
         self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
         self.display.setStyleSheet(
-            f"background: #050505; color: {C_WHITE}; border: none; font-family: Consolas;"
+            f"background: {C_BG_PRIMARY}; color: {C_TEXT_PRIMARY}; border: 1px solid {C_BORDER}; font-family: Consolas; font-size: 13px; border-radius: 4px;"
         )
         layout.addWidget(self.display, 1)
 
+        # Input area with mic and send button
         input_layout = QHBoxLayout()
+        input_layout.setSpacing(8)
+        
         self.mic_btn = QPushButton("🎤")
-        self.mic_btn.setFixedWidth(40)
+        self.mic_btn.setFixedWidth(44)
+        self.mic_btn.setToolTip("Speech-to-Text")
         self.mic_btn.clicked.connect(self._activate_stt)
         input_layout.addWidget(self.mic_btn)
 
@@ -388,24 +723,32 @@ class LintPanel(QWidget):
     def _build_ui(self):
         """Builds the lint panel UI with control buttons and results table."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
+        # Header with status and controls
         header = QFrame()
+        header.setObjectName("ControlPanel")
         h_layout = QHBoxLayout(header)
-        self.status_lbl = QLabel("Engine Idle")
+        h_layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.status_lbl = QLabel("⏸ Engine Idle")
+        self.status_lbl.setObjectName("SubHeading")
         h_layout.addWidget(self.status_lbl)
         h_layout.addStretch()
 
-        self.run_btn = QPushButton("RUN FORENSIC LINT")
+        self.run_btn = QPushButton("▶ RUN FORENSIC LINT")
         self.run_btn.setObjectName("Primary")
         self.run_btn.clicked.connect(self._start_lint)
         h_layout.addWidget(self.run_btn)
 
-        self.push_btn = QPushButton("PUSH TO AI")
+        self.push_btn = QPushButton("→ PUSH TO AI")
+        self.push_btn.setObjectName("Secondary")
         self.push_btn.clicked.connect(self._push_to_ai)
         h_layout.addWidget(self.push_btn)
         layout.addWidget(header)
 
+        # Results table
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             ["Severity", "Code", "File", "Line", "Message"]
@@ -415,6 +758,9 @@ class LintPanel(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setStyleSheet(
+            f"background-color: {C_BG_PRIMARY}; color: {C_TEXT_PRIMARY}; gridline-color: {C_BORDER}; border: 1px solid {C_BORDER}; border-radius: 4px;"
+        )
         layout.addWidget(self.table, 1)
 
     def _start_lint(self):
@@ -490,20 +836,29 @@ class RefactoryMainWindow(QMainWindow):
         self._setup_shortcuts()
 
     def _build_ui(self):
+        """Builds the main UI with toolbar, file explorer, editor, lint panel, and AI chat."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
+        # Main content splitter
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.splitter, 1)
 
-        # 1. Explorer
+        # 1. Left Panel - File Explorer
         self.explorer = QFrame()
         self.explorer.setObjectName("Panel")
         exp_layout = QVBoxLayout(self.explorer)
-        exp_layout.setContentsMargins(0, 0, 0, 0)
+        exp_layout.setContentsMargins(8, 8, 8, 8)
+        exp_layout.setSpacing(8)
+        
+        # Explorer header
+        exp_header = QLabel("📁 PROJECT EXPLORER")
+        exp_header.setObjectName("SubHeading")
+        exp_layout.addWidget(exp_header)
+        
         self.file_tree = QTreeView()
         self.file_model = QFileSystemModel()
         self.file_model.setRootPath(str(self.current_project))
@@ -511,50 +866,150 @@ class RefactoryMainWindow(QMainWindow):
         self.file_tree.setRootIndex(self.file_model.index(str(self.current_project)))
         self.file_tree.setHeaderHidden(True)
         self.file_tree.doubleClicked.connect(self._open_file)
-        exp_layout.addWidget(self.file_tree)
+        exp_layout.addWidget(self.file_tree, 1)
         self.splitter.addWidget(self.explorer)
 
-        # 2. Center (Editor + Lint)
+        # 2. Center Panel - Editor + Lint
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(8)
+        
         self.center_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # Editor section
+        editor_frame = QFrame()
+        editor_layout = QVBoxLayout(editor_frame)
+        editor_layout.setContentsMargins(8, 8, 8, 8)
+        editor_layout.setSpacing(8)
+        
+        editor_header = QLabel("📝 CODE EDITOR")
+        editor_header.setObjectName("SubHeading")
+        editor_layout.addWidget(editor_header)
+        
         self.editor = CodeEditor()
-        self.center_splitter.addWidget(self.editor)
+        editor_layout.addWidget(self.editor, 1)
+        self.center_splitter.addWidget(editor_frame)
 
+        # Lint section
         self.lint_panel = LintPanel(self._push_lint_to_chat)
         self.center_splitter.addWidget(self.lint_panel)
-        self.splitter.addWidget(self.center_splitter)
+        self.center_splitter.setSizes([400, 300])
+        
+        center_layout.addWidget(self.center_splitter, 1)
+        self.splitter.addWidget(center_widget)
 
-        # 3. Right (Chat)
+        # 3. Right Panel - AI Chat
+        chat_widget = QWidget()
+        chat_layout = QVBoxLayout(chat_widget)
+        chat_layout.setContentsMargins(8, 8, 8, 8)
+        chat_layout.setSpacing(8)
+        
+        # Chat header
+        chat_header = QLabel("🤖 AI ASSISTANT")
+        chat_header.setObjectName("SubHeading")
+        chat_layout.addWidget(chat_header)
+        
         self.chat_panel = ChatPanel(self.swarm, self.stt)
-        self.splitter.addWidget(self.chat_panel)
+        chat_layout.addWidget(self.chat_panel, 1)
+        self.splitter.addWidget(chat_widget)
 
         self.splitter.setSizes([250, 650, 400])
 
+        # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready.")
+        self.status_bar.showMessage("✓ Ready — RedTongue Refactory v4.0.0")
+
+        # Create toolbar (after all components are initialized)
+        self._build_toolbar()
+
+    def _build_toolbar(self):
+        """Builds the main toolbar with quick access actions."""
+        self.toolbar = self.addToolBar("Main Toolbar")
+        self.toolbar.setMovable(False)
+        
+        # New Project action
+        new_proj_action = QAction("📁", self)
+        new_proj_action.setToolTip("New Project")
+        new_proj_action.triggered.connect(self._open_project)
+        self.toolbar.addAction(new_proj_action)
+        
+        # Open File action
+        open_action = QAction("📂", self)
+        open_action.setToolTip("Open File (Ctrl+O)")
+        open_action.triggered.connect(self._open_project)
+        self.toolbar.addAction(open_action)
+        
+        # Save action
+        save_action = QAction("💾", self)
+        save_action.setToolTip("Save (Ctrl+S)")
+        save_action.triggered.connect(self._save_file)
+        self.toolbar.addAction(save_action)
+        
+        self.toolbar.addSeparator()
+        
+        # Run Lint action
+        lint_action = QAction("🔍", self)
+        lint_action.setToolTip("Run Forensic Lint (Ctrl+Shift+L)")
+        lint_action.triggered.connect(self.lint_panel._start_lint)
+        self.toolbar.addAction(lint_action)
+        
+        self.toolbar.addSeparator()
+        
+        # Decks button with menu
+        decks_btn = QPushButton("🃏 Decks ▼")
+        decks_btn.setObjectName("Secondary")
+        deck_menu = QMenu(self)
+        for name, script in [
+            ("🎯 Focus Studio", "ui_focus.py"),
+            ("⚗️ Crucible (Compiler)", "ui_crucible.py"),
+            ("🔪 Ripper (Downloader)", "ui_ripper.py"),
+            ("🧪 Alchemist (Converter)", "ui_alchemist.py"),
+            ("🎼 Maestro (Mastering)", "ui_alchemist.py"),
+            ("📦 PyLib (Packages)", "ui_pylib.py"),
+        ]:
+            deck_action = QAction(name, self)
+            deck_action.triggered.connect(lambda checked, s=script: self._launch_deck(s))
+            deck_menu.addAction(deck_action)
+        decks_btn.setMenu(deck_menu)
+        self.toolbar.addWidget(decks_btn)
+        
+        self.toolbar.addStretch()
+        
+        # Status indicator
+        status_indicator = QLabel("● Online")
+        status_indicator.setStyleSheet(f"color: {C_SUCCESS}; font-weight: 600; padding: 4px;")
+        self.toolbar.addWidget(status_indicator)
 
     def _build_menus(self):
         """Build the main window's File and Decks menus with their associated actions and shortcuts."""
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction(
-            "Open Project...", self._open_project, QKeySequence("Ctrl+O")
-        )
-        file_menu.addAction("Save", self._save_file, QKeySequence("Ctrl+S"))
+        open_action = file_menu.addAction("📁 Open Project...")
+        open_action.setShortcut(QKeySequence("Ctrl+O"))
+        open_action.triggered.connect(self._open_project)
+        
+        save_action = file_menu.addAction("💾 Save")
+        save_action.setShortcut(QKeySequence("Ctrl+S"))
+        save_action.triggered.connect(self._save_file)
+        
         file_menu.addSeparator()
-        file_menu.addAction("Exit", self.close, QKeySequence("Ctrl+Q"))
+        
+        exit_action = file_menu.addAction("❌ Exit")
+        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        exit_action.triggered.connect(self.close)
 
         decks_menu = menubar.addMenu("&Decks")
-        decks = [
-            ("Focus Studio", "ui_focus.py"),
-            ("Crucible (Compiler)", "ui_crucible.py"),
-            ("Ripper (Downloader)", "ui_ripper.py"),
-            ("Alchemist (Converter)", "ui_alchemist.py"),
-            ("Maestro (Mastering)", "ui_alchemist.py"),
-            ("PyLib (Packages)", "ui_pylib.py"),
-        ]
-        for name, script in decks:
+        for name, script in [
+            ("🎯 Focus Studio", "ui_focus.py"),
+            ("⚗️ Crucible (Compiler)", "ui_crucible.py"),
+            ("🔪 Ripper (Downloader)", "ui_ripper.py"),
+            ("🧪 Alchemist (Converter)", "ui_alchemist.py"),
+            ("🎼 Maestro (Mastering)", "ui_alchemist.py"),
+            ("📦 PyLib (Packages)", "ui_pylib.py"),
+        ]:
             action = QAction(name, self)
             action.triggered.connect(lambda checked, s=script: self._launch_deck(s))
             decks_menu.addAction(action)
