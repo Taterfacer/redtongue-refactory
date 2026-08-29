@@ -1,50 +1,21 @@
 ```
-# Compiled Python files
-*.pyc
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-# UI/qt files
-*.ui
-*.qrc
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
-# Dependencies
-.venv/
-venv/
-env/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Logs
+# Logs and temp files
 *.log
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Editor files
-.vscode/
-.idea/
+*.tmp
 *.swp
-*.swo
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*
 
-# Coverage reports
-.coverage
-coverage/
-htmlcov/
-
-# Pytest cache
-.pytest_cache/
-
-# MyPy cache
-.mypy_cache/
+# Editors
+.vscode/
+.idea/
 ```
