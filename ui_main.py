@@ -2,7 +2,7 @@
 """
 ui_main.py
 Main application window and UI components for the RedTongue Refactory.
-Handles layout, deck launching, AI chat streaming, and forensic linting.
+Completely redesigned with modern UX principles: clear hierarchy, intuitive flows, generous spacing.
 """
 
 import asyncio
@@ -12,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QProcess, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QProcess, Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import (
     QAction,
     QColor,
@@ -24,6 +24,8 @@ from PyQt6.QtGui import (
     QTextCursor,
     QFileSystemModel,
     QIcon,
+    QPalette,
+    QBrush,
 )
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -50,365 +52,524 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QMenu,
     QSizePolicy,
+    QCompleter,
+    QProgressBar,
+    QStackedWidget,
+    QComboBox,
 )
 
 from backend import AgentSwarm, SpeechToText, ToolLayer, load_config
 
 # ==============================================================================
-# THEME CONSTANTS - Modern Dark Theme with Silver/Red/Black accents
+# THEME CONSTANTS - Modern Professional Dark Theme
+# Optimized for readability, reduced eye strain, and clear visual hierarchy
 # ==============================================================================
-C_BG_PRIMARY = "#1a1a1a"       # Main background
-C_BG_SECONDARY = "#252525"     # Panel backgrounds
-C_BG_TERTIARY = "#2d2d2d"      # Input fields
-C_SURFACE = "#333333"          # Elevated surfaces
-C_BORDER = "#404040"           # Borders
-C_BORDER_LIGHT = "#555555"     # Light borders
 
-# Accent colors
-C_RED_PRIMARY = "#e74c3c"      # Primary red
-C_RED_DARK = "#c0392b"         # Dark red
-C_RED_LIGHT = "#ff6b6b"        # Light red
-C_SILVER = "#bdc3c7"           # Silver
-C_SILVER_DARK = "#95a5a6"      # Dark silver
-C_SILVER_LIGHT = "#ecf0f1"     # Light silver
+# Background layers (subtle differentiation)
+C_BG_MAIN = "#1e1e2e"        # Main window background
+C_BG_PANEL = "#252537"       # Panel backgrounds  
+C_BG_SURFACE = "#2d2d44"     # Elevated surfaces/cards
+C_BG_INPUT = "#35354f"       # Input fields
 
-# Text colors
-C_TEXT_PRIMARY = "#ffffff"     # Primary text
-C_TEXT_SECONDARY = "#b0b0b0"   # Secondary text
-C_TEXT_MUTED = "#707070"       # Muted text
+# Borders and dividers
+C_BORDER_SUBTLE = "#3a3a5c"  # Subtle borders
+C_BORDER_NORMAL = "#4a4a6a"  # Normal borders
+C_BORDER_FOCUS = "#7aa2f7"   # Focus state borders
 
-# Status colors
-C_SUCCESS = "#27ae60"
-C_WARNING = "#f39c12"
-C_ERROR = "#e74c3c"
-C_INFO = "#3498db"
+# Primary accent - Professional blue
+C_PRIMARY = "#7aa2f7"        
+C_PRIMARY_HOVER = "#89b4fa"
+C_PRIMARY_ACTIVE = "#5e81e8"
+
+# Secondary accent - Soft cyan
+C_SECONDARY = "#73daca"
+C_SECONDARY_HOVER = "#8ce6d8"
+
+# Status colors (softer, less harsh)
+C_SUCCESS = "#9ece6a"
+C_WARNING = "#e0af68"
+C_ERROR = "#f7768e"
+C_INFO = "#7dcfff"
+
+# Text colors (high contrast, easy reading)
+C_TEXT_MAIN = "#ffffff"      
+C_TEXT_SECONDARY = "#a9b1d6" 
+C_TEXT_MUTED = "#565f89"     
+
+# Syntax highlighting
+C_KEYWORD = "#bb9af7"
+C_STRING = "#9ece6a"
+C_COMMENT = "#565f89"
+C_FUNCTION = "#7aa2f7"
+C_CLASS = "#e0af68"
 
 QSS = f"""
-/* Main Window */
+/* ==========================================================================
+   MAIN WINDOW - Clean, professional base
+   ========================================================================== */
 QMainWindow {{ 
-    background-color: {C_BG_PRIMARY}; 
-    color: {C_TEXT_PRIMARY}; 
-    font-family: 'Segoe UI', 'Roboto', sans-serif; 
+    background-color: {C_BG_MAIN}; 
+    color: {C_TEXT_MAIN}; 
+    font-family: 'Inter', 'Segoe UI', sans-serif; 
     font-size: 13px; 
+    line-height: 1.5;
 }}
 
-/* Panels and Frames */
+/* ==========================================================================
+   PANELS & FRAMES - Subtle depth with soft shadows simulation
+   ========================================================================== */
 QFrame#Panel {{ 
-    background-color: {C_BG_SECONDARY}; 
-    border: 1px solid {C_BORDER}; 
-    border-radius: 6px; 
+    background-color: {C_BG_PANEL}; 
+    border: 1px solid {C_BORDER_SUBTLE}; 
+    border-radius: 8px; 
 }}
 QFrame#ControlPanel {{
-    background-color: {C_BG_SECONDARY};
-    border: 1px solid {C_BORDER};
+    background-color: {C_BG_SURFACE};
+    border: 1px solid {C_BORDER_NORMAL};
+    border-radius: 10px;
+}}
+QFrame#Card {{
+    background-color: {C_BG_SURFACE};
+    border: 1px solid {C_BORDER_SUBTLE};
     border-radius: 8px;
 }}
 
-/* Menu Bar */
+/* ==========================================================================
+   MENU BAR - Clean, unobtrusive
+   ========================================================================== */
 QMenuBar {{
-    background-color: {C_BG_PRIMARY};
-    color: {C_TEXT_PRIMARY};
-    border-bottom: 1px solid {C_BORDER};
-    padding: 4px;
+    background-color: {C_BG_MAIN};
+    color: {C_TEXT_MAIN};
+    border-bottom: 1px solid {C_BORDER_SUBTLE};
+    padding: 6px 12px;
+    font-weight: 500;
+}}
+QMenuBar::item {{
+    padding: 6px 12px;
+    border-radius: 4px;
 }}
 QMenuBar::item:selected {{
-    background-color: {C_RED_PRIMARY};
-    border-radius: 4px;
+    background-color: {C_PRIMARY};
+    color: {C_BG_MAIN};
 }}
 QMenu {{
-    background-color: {C_BG_SECONDARY};
-    border: 1px solid {C_BORDER};
-    border-radius: 6px;
+    background-color: {C_BG_PANEL};
+    border: 1px solid {C_BORDER_NORMAL};
+    border-radius: 8px;
     padding: 8px;
 }}
-QMenu::item:selected {{
-    background-color: {C_RED_PRIMARY};
+QMenu::item {{
+    padding: 8px 24px;
     border-radius: 4px;
 }}
+QMenu::item:selected {{
+    background-color: {C_PRIMARY};
+    color: {C_BG_MAIN};
+}}
 
-/* ToolBar */
+/* ==========================================================================
+   TOOLBAR - Modern, spacious
+   ========================================================================== */
 QToolBar {{
-    background-color: {C_BG_SECONDARY};
+    background-color: {C_BG_PANEL};
     border: none;
-    border-bottom: 1px solid {C_BORDER};
-    padding: 6px;
-    spacing: 6px;
-    icon-size: 20px;
+    border-bottom: 1px solid {C_BORDER_SUBTLE};
+    padding: 8px 12px;
+    spacing: 8px;
+    icon-size: 22px;
 }}
 QToolBar::separator {{
-    width: 1px;
-    background: {C_BORDER};
-    margin: 4px 8px;
+    width: 2px;
+    background: {C_BORDER_NORMAL};
+    margin: 6px 12px;
+    border-radius: 1px;
 }}
 QToolButton {{
     background-color: transparent;
     border: 1px solid transparent;
-    border-radius: 4px;
-    padding: 6px 10px;
-    color: {C_TEXT_PRIMARY};
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: {C_TEXT_MAIN};
+    font-weight: 500;
 }}
 QToolButton:hover {{
-    background-color: {C_SURFACE};
-    border: 1px solid {C_BORDER_LIGHT};
+    background-color: {C_BG_SURFACE};
+    border: 1px solid {C_BORDER_NORMAL};
 }}
 QToolButton:pressed {{
-    background-color: {C_RED_PRIMARY};
+    background-color: {C_PRIMARY};
+    color: {C_BG_MAIN};
+}}
+QToolButton::menu-indicator {{
+    image: none;
 }}
 
-/* Tree View (File Explorer) */
+/* ==========================================================================
+   FILE EXPLORER - Clear tree structure
+   ========================================================================== */
 QTreeView {{ 
-    background-color: {C_BG_PRIMARY}; 
-    border: 1px solid {C_BORDER}; 
-    color: {C_TEXT_PRIMARY}; 
-    border-radius: 4px;
-    padding: 4px;
+    background-color: {C_BG_MAIN}; 
+    border: 1px solid {C_BORDER_SUBTLE}; 
+    color: {C_TEXT_MAIN}; 
+    border-radius: 6px;
+    padding: 6px;
+    outline: none;
 }}
 QTreeView::item {{
-    padding: 4px;
-    border-radius: 3px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
 }}
 QTreeView::item:hover {{
-    background-color: {C_SURFACE};
+    background-color: {C_BG_SURFACE};
+    border-color: {C_BORDER_SUBTLE};
 }}
 QTreeView::item:selected {{ 
-    background-color: {C_RED_PRIMARY}; 
-    color: {C_TEXT_PRIMARY}; 
+    background-color: {C_PRIMARY}; 
+    color: {C_BG_MAIN};
+    font-weight: 600;
 }}
-QTreeView::branch:has-children:!has-siblings:closed,
-QTreeView::branch:closed:has-children:has-siblings {{
-    border-image: none;
+QTreeView::branch {{
     image: none;
 }}
-QTreeView::branch:open:has-children:!has-siblings,
-QTreeView::branch:open:has-children:has-siblings {{
-    border-image: none;
+QTreeView::branch:has-children:closed {{
+    image: none;
+}}
+QTreeView::branch:open:has-children {{
     image: none;
 }}
 
-/* Tab Widget */
+/* ==========================================================================
+   TAB WIDGET - Clean tab design
+   ========================================================================== */
 QTabWidget::pane {{ 
-    border: 1px solid {C_BORDER}; 
-    background: {C_BG_PRIMARY}; 
-    border-radius: 6px;
+    border: 1px solid {C_BORDER_SUBTLE}; 
+    background: {C_BG_MAIN}; 
+    border-radius: 8px;
+    padding: 4px;
 }}
 QTabBar::tab {{ 
-    background: {C_BG_TERTIARY}; 
+    background: {C_BG_SURFACE}; 
     color: {C_TEXT_SECONDARY}; 
-    padding: 10px 20px; 
-    border: 1px solid {C_BORDER}; 
+    padding: 10px 24px; 
+    border: 1px solid {C_BORDER_SUBTLE}; 
     border-bottom: none;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    margin-right: 2px;
-}}
-QTabBar::tab:hover {{
-    background: {C_SURFACE};
-    color: {C_TEXT_PRIMARY};
-}}
-QTabBar::tab:selected {{ 
-    background: {C_BG_SECONDARY}; 
-    color: {C_TEXT_PRIMARY}; 
-    border-bottom: 2px solid {C_RED_PRIMARY};
-}}
-
-/* Buttons */
-QPushButton {{ 
-    background-color: {C_BG_TERTIARY}; 
-    color: {C_TEXT_PRIMARY}; 
-    border: 1px solid {C_BORDER}; 
-    border-radius: 6px; 
-    padding: 8px 20px;
+    margin-right: 4px;
     font-weight: 500;
 }}
+QTabBar::tab:hover {{
+    background: {C_BG_PANEL};
+    color: {C_TEXT_MAIN};
+}}
+QTabBar::tab:selected {{ 
+    background: {C_BG_PANEL}; 
+    color: {C_PRIMARY}; 
+    border-bottom: 2px solid {C_PRIMARY};
+}}
+
+/* ==========================================================================
+   BUTTONS - Clear hierarchy, obvious affordances
+   ========================================================================== */
+QPushButton {{ 
+    background-color: {C_BG_SURFACE}; 
+    color: {C_TEXT_MAIN}; 
+    border: 1px solid {C_BORDER_NORMAL}; 
+    border-radius: 6px; 
+    padding: 10px 20px;
+    font-weight: 500;
+    min-width: 80px;
+}}
 QPushButton:hover {{ 
-    background-color: {C_SURFACE};
-    border: 1px solid {C_BORDER_LIGHT};
+    background-color: {C_BG_PANEL};
+    border: 1px solid {C_BORDER_FOCUS};
 }}
 QPushButton:pressed {{
-    background-color: {C_RED_PRIMARY};
-    border: 1px solid {C_RED_PRIMARY};
+    background-color: {C_PRIMARY};
+    color: {C_BG_MAIN};
+    border: 1px solid {C_PRIMARY};
 }}
 QPushButton#Primary {{ 
-    background-color: {C_RED_PRIMARY}; 
-    color: {C_TEXT_PRIMARY}; 
-    border: 1px solid {C_RED_PRIMARY};
+    background-color: {C_PRIMARY}; 
+    color: {C_BG_MAIN}; 
+    border: 1px solid {C_PRIMARY};
     font-weight: 600;
+    padding: 10px 24px;
 }}
 QPushButton#Primary:hover {{ 
-    background-color: {C_RED_LIGHT}; 
-    border: 1px solid {C_RED_LIGHT};
+    background-color: {C_PRIMARY_HOVER}; 
+    border: 1px solid {C_PRIMARY_HOVER};
 }}
 QPushButton#Primary:pressed {{
-    background-color: {C_RED_DARK};
+    background-color: {C_PRIMARY_ACTIVE};
 }}
 QPushButton#Secondary {{
     background-color: transparent;
-    border: 1px solid {C_SILVER_DARK};
-    color: {C_SILVER};
+    border: 1px solid {C_BORDER_NORMAL};
+    color: {C_TEXT_SECONDARY};
 }}
 QPushButton#Secondary:hover {{
-    background-color: {C_SILVER_DARK};
-    color: {C_TEXT_PRIMARY};
+    background-color: {C_BG_SURFACE};
+    color: {C_TEXT_MAIN};
+    border: 1px solid {C_TEXT_SECONDARY};
+}}
+QPushButton#Success {{
+    background-color: {C_SUCCESS};
+    color: {C_BG_MAIN};
+    border: 1px solid {C_SUCCESS};
+    font-weight: 600;
+}}
+QPushButton#Success:hover {{
+    background-color: #a8d986;
 }}
 QPushButton#Danger {{
-    background-color: {C_RED_DARK};
-    border: 1px solid {C_RED_DARK};
+    background-color: {C_ERROR};
+    color: {C_BG_MAIN};
+    border: 1px solid {C_ERROR};
 }}
 QPushButton#Danger:hover {{
-    background-color: {C_RED_PRIMARY};
+    background-color: #ff8fa3;
+}}
+QPushButton:disabled {{
+    background-color: {C_BG_SURFACE};
+    color: {C_TEXT_MUTED};
+    border: 1px solid {C_BORDER_SUBTLE};
 }}
 
-/* Line Edit */
+/* ==========================================================================
+   INPUT FIELDS - Clear, focusable
+   ========================================================================== */
 QLineEdit {{ 
-    background-color: {C_BG_TERTIARY}; 
-    border: 1px solid {C_BORDER}; 
-    color: {C_TEXT_PRIMARY}; 
-    padding: 8px 12px; 
+    background-color: {C_BG_INPUT}; 
+    border: 1px solid {C_BORDER_NORMAL}; 
+    color: {C_TEXT_MAIN}; 
+    padding: 10px 14px; 
     border-radius: 6px;
-    selection-background-color: {C_RED_PRIMARY};
+    selection-background-color: {C_PRIMARY};
+    font-size: 13px;
 }}
 QLineEdit:focus {{
-    border: 1px solid {C_RED_PRIMARY};
+    border: 1px solid {C_PRIMARY};
+    outline: none;
 }}
 QLineEdit:placeholder {{
     color: {C_TEXT_MUTED};
 }}
+QComboBox {{
+    background-color: {C_BG_INPUT};
+    border: 1px solid {C_BORDER_NORMAL};
+    color: {C_TEXT_MAIN};
+    padding: 10px 14px;
+    border-radius: 6px;
+    min-width: 120px;
+}}
+QComboBox:hover {{
+    border: 1px solid {C_BORDER_FOCUS};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 24px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {C_BG_PANEL};
+    border: 1px solid {C_BORDER_NORMAL};
+    selection-background-color: {C_PRIMARY};
+    border-radius: 6px;
+}}
 
-/* Plain Text Edit */
+/* ==========================================================================
+   TEXT EDITORS - Readable, comfortable
+   ========================================================================== */
 QPlainTextEdit {{
-    background-color: {C_BG_PRIMARY};
-    color: {C_TEXT_PRIMARY};
-    border: 1px solid {C_BORDER};
-    border-radius: 4px;
-    padding: 8px;
-    selection-background-color: {C_RED_PRIMARY};
+    background-color: {C_BG_MAIN};
+    color: {C_TEXT_MAIN};
+    border: 1px solid {C_BORDER_SUBTLE};
+    border-radius: 6px;
+    padding: 12px;
+    selection-background-color: {C_PRIMARY};
+    selection-color: {C_BG_MAIN};
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
 }}
 QPlainTextEdit:focus {{
-    border: 1px solid {C_RED_PRIMARY};
+    border: 1px solid {C_BORDER_FOCUS};
+}}
+QPlainTextEdit:placeholder {{
+    color: {C_TEXT_MUTED};
 }}
 
-/* Table Widget */
+/* ==========================================================================
+   TABLES - Clean data presentation
+   ========================================================================== */
 QTableWidget {{ 
-    background-color: {C_BG_PRIMARY}; 
-    gridline-color: {C_BORDER}; 
-    border: 1px solid {C_BORDER};
-    border-radius: 4px;
+    background-color: {C_BG_MAIN}; 
+    gridline-color: {C_BORDER_SUBTLE}; 
+    border: 1px solid {C_BORDER_SUBTLE};
+    border-radius: 6px;
+    alternate-background-color: {C_BG_PANEL};
 }}
 QTableWidget::item {{
-    padding: 6px;
+    padding: 8px;
+    border: none;
 }}
 QTableWidget::item:selected {{ 
-    background-color: {C_RED_PRIMARY}; 
-    color: {C_TEXT_PRIMARY};
-}}
-QHeaderView::section {{ 
-    background-color: {C_BG_TERTIARY}; 
-    color: {C_TEXT_SECONDARY}; 
-    padding: 8px; 
-    border: 1px solid {C_BORDER};
+    background-color: {C_PRIMARY}; 
+    color: {C_BG_MAIN};
     font-weight: 600;
 }}
+QTableWidget::item:hover {{
+    background-color: {C_BG_SURFACE};
+}}
+QHeaderView::section {{ 
+    background-color: {C_BG_SURFACE}; 
+    color: {C_TEXT_SECONDARY}; 
+    padding: 10px; 
+    border: 1px solid {C_BORDER_SUBTLE};
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+}}
 
-/* Scroll Bars */
+/* ==========================================================================
+   SCROLL BARS - Unobtrusive, modern
+   ========================================================================== */
 QScrollBar:vertical {{ 
-    background: {C_BG_PRIMARY}; 
-    width: 10px; 
-    border-radius: 5px;
+    background: {C_BG_MAIN}; 
+    width: 12px; 
+    border-radius: 6px;
+    margin: 2px;
 }}
 QScrollBar::handle:vertical {{ 
-    background: {C_SURFACE}; 
-    border-radius: 5px;
-    min-height: 20px;
+    background: {C_BORDER_NORMAL}; 
+    border-radius: 6px;
+    min-height: 30px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: {C_SILVER_DARK};
+    background: {C_TEXT_SECONDARY};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: none;
+}}
 QScrollBar:horizontal {{ 
-    background: {C_BG_PRIMARY}; 
-    height: 10px; 
-    border-radius: 5px;
+    background: {C_BG_MAIN}; 
+    height: 12px; 
+    border-radius: 6px;
+    margin: 2px;
 }}
 QScrollBar::handle:horizontal {{ 
-    background: {C_SURFACE}; 
-    border-radius: 5px;
-    min-width: 20px;
+    background: {C_BORDER_NORMAL}; 
+    border-radius: 6px;
+    min-width: 30px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background: {C_SILVER_DARK};
+    background: {C_TEXT_SECONDARY};
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 
-/* Status Bar */
+/* ==========================================================================
+   STATUS BAR - Informative, not distracting
+   ========================================================================== */
 QStatusBar {{ 
-    background-color: {C_BG_SECONDARY}; 
+    background-color: {C_BG_PANEL}; 
     color: {C_TEXT_SECONDARY}; 
-    border-top: 1px solid {C_BORDER};
-    padding: 4px;
+    border-top: 1px solid {C_BORDER_SUBTLE};
+    padding: 6px 12px;
+    font-size: 12px;
 }}
 
-/* Group Box */
+/* ==========================================================================
+   GROUP BOX - Organized sections
+   ========================================================================== */
 QGroupBox {{
-    background-color: {C_BG_SECONDARY};
-    border: 1px solid {C_BORDER};
-    border-radius: 6px;
-    margin-top: 12px;
-    padding-top: 12px;
+    background-color: {C_BG_PANEL};
+    border: 1px solid {C_BORDER_SUBTLE};
+    border-radius: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
     font-weight: 600;
-    color: {C_SILVER};
+    color: {C_TEXT_MAIN};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 8px;
-    color: {C_RED_PRIMARY};
+    left: 14px;
+    padding: 0 10px;
+    color: {C_PRIMARY};
+    background-color: {C_BG_PANEL};
 }}
 
-/* Labels */
+/* ==========================================================================
+   LABELS - Clear typography hierarchy
+   ========================================================================== */
 QLabel {{
-    color: {C_TEXT_PRIMARY};
+    color: {C_TEXT_MAIN};
 }}
 QLabel#Heading {{
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 700;
-    color: {C_SILVER_LIGHT};
+    color: {C_TEXT_MAIN};
+    letter-spacing: -0.5px;
 }}
 QLabel#SubHeading {{
     font-size: 14px;
     font-weight: 600;
-    color: {C_SILVER};
+    color: {C_TEXT_SECONDARY};
 }}
 QLabel#Muted {{
     color: {C_TEXT_MUTED};
     font-size: 12px;
 }}
+QLabel#StatusGood {{
+    color: {C_SUCCESS};
+    font-weight: 600;
+}}
+QLabel#StatusWarning {{
+    color: {C_WARNING};
+    font-weight: 600;
+}}
+QLabel#StatusError {{
+    color: {C_ERROR};
+    font-weight: 600;
+}}
 
-/* Combo Box */
-QComboBox {{
-    background-color: {C_BG_TERTIARY};
-    border: 1px solid {C_BORDER};
-    color: {C_TEXT_PRIMARY};
-    padding: 6px 12px;
+/* ==========================================================================
+   PROGRESS BAR - Smooth, modern
+   ========================================================================== */
+QProgressBar {{
+    background-color: {C_BG_INPUT};
+    border: 1px solid {C_BORDER_SUBTLE};
     border-radius: 6px;
+    text-align: center;
+    color: {C_TEXT_MAIN};
+    font-weight: 600;
+    height: 8px;
 }}
-QComboBox:hover {{
-    border: 1px solid {C_BORDER_LIGHT};
-}}
-QComboBox::drop-down {{
-    border: none;
-    width: 20px;
-}}
-QComboBox QAbstractItemView {{
-    background-color: {C_BG_SECONDARY};
-    border: 1px solid {C_BORDER};
-    selection-background-color: {C_RED_PRIMARY};
+QProgressBar::chunk {{
+    background-color: {C_PRIMARY};
+    border-radius: 4px;
 }}
 
-/* Progress indicators, checkboxes, etc. can be added as needed */
+/* ==========================================================================
+   CHAT MESSAGE BUBBLES - Clear conversation flow
+   ========================================================================== */
+QTextEdit {{
+    background-color: {C_BG_MAIN};
+    color: {C_TEXT_MAIN};
+    border: 1px solid {C_BORDER_SUBTLE};
+    border-radius: 8px;
+    padding: 12px;
+    selection-background-color: {C_PRIMARY};
+}}
+QTextEdit:focus {{
+    border: 1px solid {C_BORDER_FOCUS};
+}}
 """
 
 
@@ -601,7 +762,7 @@ class CodeEditor(QPlainTextEdit):
 
 
 class ChatPanel(QWidget):
-    """AI Chat interface with Speech-to-Text."""
+    """AI Chat interface with Speech-to-Text - Redesigned for clarity."""
 
     def __init__(self, swarm: AgentSwarm, stt: SpeechToText, parent=None):
         super().__init__(parent)
@@ -612,52 +773,73 @@ class ChatPanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        """Builds the chat panel UI with display area and input controls."""
+        """Builds the chat panel UI with clear visual hierarchy."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        # Chat display area
+        # Chat display area with message bubbles
         self.display = QPlainTextEdit()
         self.display.setReadOnly(True)
-        self.display.setStyleSheet(
-            f"background: {C_BG_PRIMARY}; color: {C_TEXT_PRIMARY}; border: 1px solid {C_BORDER}; font-family: Consolas; font-size: 13px; border-radius: 4px;"
-        )
+        self.display.setPlaceholderText("AI responses will appear here...")
+        self.display.setStyleSheet(f"""
+            background: {C_BG_MAIN}; 
+            color: {C_TEXT_MAIN}; 
+            border: 1px solid {C_BORDER_SUBTLE}; 
+            font-family: 'JetBrains Mono', Consolas, monospace; 
+            font-size: 13px; 
+            border-radius: 8px;
+            padding: 12px;
+        """)
         layout.addWidget(self.display, 1)
 
-        # Input area with mic and send button
-        input_layout = QHBoxLayout()
-        input_layout.setSpacing(8)
+        # Input area with clear affordances
+        input_card = QFrame()
+        input_card.setObjectName("Card")
+        input_layout = QHBoxLayout(input_card)
+        input_layout.setContentsMargins(12, 12, 12, 12)
+        input_layout.setSpacing(12)
         
+        # Mic button with clear icon
         self.mic_btn = QPushButton("🎤")
-        self.mic_btn.setFixedWidth(44)
-        self.mic_btn.setToolTip("Speech-to-Text")
+        self.mic_btn.setFixedSize(48, 48)
+        self.mic_btn.setToolTip("Click to use speech-to-text")
         self.mic_btn.clicked.connect(self._activate_stt)
         input_layout.addWidget(self.mic_btn)
 
+        # Input field with clear placeholder
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Ask the Swarm... (Enter to send)")
+        self.input.setPlaceholderText("Type your message or use voice input...")
         self.input.returnPressed.connect(self._send_message)
+        self.input.setStyleSheet(f"""
+            background-color: {C_BG_INPUT};
+            border: 1px solid {C_BORDER_NORMAL};
+            color: {C_TEXT_MAIN};
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+        """)
         input_layout.addWidget(self.input, 1)
 
+        # Send button with primary styling
         self.send_btn = QPushButton("Send")
         self.send_btn.setObjectName("Primary")
+        self.send_btn.setFixedSize(80, 48)
         self.send_btn.clicked.connect(self._send_message)
         input_layout.addWidget(self.send_btn)
 
-        layout.addLayout(input_layout)
+        layout.addWidget(input_card)
 
     def _activate_stt(self):
         """Activates speech-to-text listening in background thread."""
-        self.mic_btn.setText("🎙️...")
+        self.mic_btn.setText("🎙️")
         self.mic_btn.setEnabled(False)
-        # Run STT in a separate thread to avoid blocking UI
+        self.mic_btn.setStyleSheet("background-color: #e0af68; color: #1a1a2e;")
         threading.Thread(target=self._stt_worker, daemon=True).start()
 
     def _stt_worker(self):
         """Background worker for speech-to-text transcription."""
         text = self.stt.listen_and_transcribe()
-        # Update UI on main thread
         from PyQt6.QtCore import QMetaObject, Qt
 
         QMetaObject.invokeMethod(
@@ -668,6 +850,7 @@ class ChatPanel(QWidget):
         )
         self.mic_btn.setText("🎤")
         self.mic_btn.setEnabled(True)
+        self.mic_btn.setStyleSheet("")
 
     def _update_input(self, text):
         """Updates input field with transcribed text from STT."""
@@ -681,7 +864,7 @@ class ChatPanel(QWidget):
             return
 
         self.input.clear()
-        self.display.appendPlainText(f"[USER] {text}\n")
+        self.display.appendPlainText(f"▸ You: {text}\n")
         self.history.append({"role": "user", "content": text})
 
         self.worker = ChatWorker(self.swarm, text, self.history)
@@ -700,20 +883,20 @@ class ChatPanel(QWidget):
 
     def _append_tool(self, name, output):
         """Appends tool execution result to chat display."""
-        self.display.appendPlainText(f"\n[TOOL: {name}] {output}\n")
+        self.display.appendPlainText(f"\n⚙️ [{name}] {output}\n")
 
     def _append_error(self, error):
         """Appends error message to chat display."""
-        self.display.appendPlainText(f"\n[ERROR] {error}\n")
+        self.display.appendPlainText(f"\n⚠️ Error: {error}\n")
 
     def _chat_finished(self):
         """Handles chat stream completion."""
-        self.display.appendPlainText("\n")
+        self.display.appendPlainText("\n" + "─" * 50 + "\n")
         self.history.append({"role": "assistant", "content": "Response complete."})
 
 
 class LintPanel(QWidget):
-    """Forensic lint results table."""
+    """Forensic lint results table - Redesigned for clarity."""
 
     def __init__(self, on_push_to_ai, parent=None):
         super().__init__(parent)
@@ -723,34 +906,34 @@ class LintPanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        """Builds the lint panel UI with control buttons and results table."""
+        """Builds the lint panel UI with clear controls and readable results."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        # Header with status and controls
+        # Header card with status and controls
         header = QFrame()
         header.setObjectName("ControlPanel")
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(8, 8, 8, 8)
+        h_layout.setContentsMargins(16, 16, 16, 16)
         
         self.status_lbl = QLabel("⏸ Engine Idle")
         self.status_lbl.setObjectName("SubHeading")
         h_layout.addWidget(self.status_lbl)
         h_layout.addStretch()
 
-        self.run_btn = QPushButton("▶ RUN FORENSIC LINT")
+        self.run_btn = QPushButton("▶ Run Analysis")
         self.run_btn.setObjectName("Primary")
         self.run_btn.clicked.connect(self._start_lint)
         h_layout.addWidget(self.run_btn)
 
-        self.push_btn = QPushButton("→ PUSH TO AI")
+        self.push_btn = QPushButton("→ Push to AI")
         self.push_btn.setObjectName("Secondary")
         self.push_btn.clicked.connect(self._push_to_ai)
         h_layout.addWidget(self.push_btn)
         layout.addWidget(header)
 
-        # Results table
+        # Results table with better readability
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
             ["Severity", "Code", "File", "Line", "Message"]
@@ -760,9 +943,15 @@ class LintPanel(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setStyleSheet(
-            f"background-color: {C_BG_PRIMARY}; color: {C_TEXT_PRIMARY}; gridline-color: {C_BORDER}; border: 1px solid {C_BORDER}; border-radius: 4px;"
-        )
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setStyleSheet(f"""
+            background-color: {C_BG_MAIN}; 
+            color: {C_TEXT_MAIN}; 
+            gridline-color: {C_BORDER_SUBTLE}; 
+            border: 1px solid {C_BORDER_SUBTLE}; 
+            border-radius: 8px;
+        """)
         layout.addWidget(self.table, 1)
 
     def _start_lint(self):
@@ -772,7 +961,7 @@ class LintPanel(QWidget):
             return
         self.table.setRowCount(0)
         self.all_issues = []
-        self.run_btn.setText("STOP LINT")
+        self.run_btn.setText("⏹ Stop Analysis")
         self.worker = LintWorker(Path.cwd())
         self.worker.batch_ready.connect(self._on_batch)
         self.worker.progress.connect(self.status_lbl.setText)
@@ -785,7 +974,7 @@ class LintPanel(QWidget):
         for issue in issues:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            sev_color = "#ff4444" if issue["severity"] == "HIGH" else "#ffaa00"
+            sev_color = C_ERROR if issue["severity"] == "HIGH" else C_WARNING
             sev_item = QTableWidgetItem(issue["severity"])
             sev_item.setForeground(QColor(sev_color))
             self.table.setItem(row, 0, sev_item)
@@ -796,8 +985,12 @@ class LintPanel(QWidget):
 
     def _on_finished(self, summary):
         """Handles lint completion and updates status display."""
-        self.run_btn.setText("RUN FORENSIC LINT")
-        self.status_lbl.setText(f"Complete: {len(self.all_issues)} issues found.")
+        self.run_btn.setText("▶ Run Analysis")
+        self.status_lbl.setText(f"✓ Complete: {len(self.all_issues)} issues found")
+        if len(self.all_issues) > 0:
+            self.status_lbl.setObjectName("StatusWarning")
+        else:
+            self.status_lbl.setObjectName("StatusGood")
 
     def _push_to_ai(self):
         """Pushes top issues to AI chat for analysis."""
@@ -838,14 +1031,14 @@ class RefactoryMainWindow(QMainWindow):
         self._setup_shortcuts()
 
     def _build_ui(self):
-        """Builds the main UI with toolbar, file explorer, editor, lint panel, and AI chat."""
+        """Builds the main UI with modern layout, clear sections, and intuitive spacing."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Main content splitter
+        # Main content splitter with generous proportions
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.splitter, 1)
 
@@ -853,12 +1046,12 @@ class RefactoryMainWindow(QMainWindow):
         self.explorer = QFrame()
         self.explorer.setObjectName("Panel")
         exp_layout = QVBoxLayout(self.explorer)
-        exp_layout.setContentsMargins(8, 8, 8, 8)
-        exp_layout.setSpacing(8)
+        exp_layout.setContentsMargins(12, 12, 12, 12)
+        exp_layout.setSpacing(12)
         
-        # Explorer header
-        exp_header = QLabel("📁 PROJECT EXPLORER")
-        exp_header.setObjectName("SubHeading")
+        # Explorer header with clear typography
+        exp_header = QLabel("📁 Project Explorer")
+        exp_header.setObjectName("Heading")
         exp_layout.addWidget(exp_header)
         
         self.file_tree = QTreeView()
@@ -867,6 +1060,7 @@ class RefactoryMainWindow(QMainWindow):
         self.file_tree.setModel(self.file_model)
         self.file_tree.setRootIndex(self.file_model.index(str(self.current_project)))
         self.file_tree.setHeaderHidden(True)
+        self.file_tree.setAnimated(True)
         self.file_tree.doubleClicked.connect(self._open_file)
         exp_layout.addWidget(self.file_tree, 1)
         self.splitter.addWidget(self.explorer)
@@ -875,28 +1069,29 @@ class RefactoryMainWindow(QMainWindow):
         center_widget = QWidget()
         center_layout = QVBoxLayout(center_widget)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(8)
+        center_layout.setSpacing(12)
         
         self.center_splitter = QSplitter(Qt.Orientation.Vertical)
         
         # Editor section
         editor_frame = QFrame()
         editor_layout = QVBoxLayout(editor_frame)
-        editor_layout.setContentsMargins(8, 8, 8, 8)
-        editor_layout.setSpacing(8)
+        editor_layout.setContentsMargins(12, 12, 12, 12)
+        editor_layout.setSpacing(12)
         
-        editor_header = QLabel("📝 CODE EDITOR")
-        editor_header.setObjectName("SubHeading")
+        editor_header = QLabel("📝 Code Editor")
+        editor_header.setObjectName("Heading")
         editor_layout.addWidget(editor_header)
         
         self.editor = CodeEditor()
+        self.editor.setPlaceholderText("Open a file to start editing...")
         editor_layout.addWidget(self.editor, 1)
         self.center_splitter.addWidget(editor_frame)
 
         # Lint section
         self.lint_panel = LintPanel(self._push_lint_to_chat)
         self.center_splitter.addWidget(self.lint_panel)
-        self.center_splitter.setSizes([400, 300])
+        self.center_splitter.setSizes([500, 350])
         
         center_layout.addWidget(self.center_splitter, 1)
         self.splitter.addWidget(center_widget)
@@ -904,21 +1099,21 @@ class RefactoryMainWindow(QMainWindow):
         # 3. Right Panel - AI Chat
         chat_widget = QWidget()
         chat_layout = QVBoxLayout(chat_widget)
-        chat_layout.setContentsMargins(8, 8, 8, 8)
-        chat_layout.setSpacing(8)
+        chat_layout.setContentsMargins(12, 12, 12, 12)
+        chat_layout.setSpacing(12)
         
-        # Chat header
-        chat_header = QLabel("🤖 AI ASSISTANT")
-        chat_header.setObjectName("SubHeading")
+        # Chat header with clear typography
+        chat_header = QLabel("🤖 AI Assistant")
+        chat_header.setObjectName("Heading")
         chat_layout.addWidget(chat_header)
         
         self.chat_panel = ChatPanel(self.swarm, self.stt)
         chat_layout.addWidget(self.chat_panel, 1)
         self.splitter.addWidget(chat_widget)
 
-        self.splitter.setSizes([250, 650, 400])
+        self.splitter.setSizes([280, 720, 450])
 
-        # Status bar
+        # Status bar with helpful info
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("✓ Ready — RedTongue Refactory v4.0.0")
