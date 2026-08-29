@@ -40,14 +40,16 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
+    QToolBar,
+    QToolButton,
     QTreeView,
     QVBoxLayout,
     QWidget,
-    QToolBar,
     QTabWidget,
     QScrollArea,
     QGroupBox,
     QMenu,
+    QSizePolicy,
 )
 
 from backend import AgentSwarm, SpeechToText, ToolLayer, load_config
@@ -958,8 +960,10 @@ class RefactoryMainWindow(QMainWindow):
         self.toolbar.addSeparator()
         
         # Decks button with menu
-        decks_btn = QPushButton("🃏 Decks ▼")
+        decks_btn = QToolButton()
+        decks_btn.setText("🃏 Decks ▼")
         decks_btn.setObjectName("Secondary")
+        decks_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         deck_menu = QMenu(self)
         for name, script in [
             ("🎯 Focus Studio", "ui_focus.py"),
@@ -975,7 +979,10 @@ class RefactoryMainWindow(QMainWindow):
         decks_btn.setMenu(deck_menu)
         self.toolbar.addWidget(decks_btn)
         
-        self.toolbar.addStretch()
+        # Add spacer to push status indicator to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.toolbar.addWidget(spacer)
         
         # Status indicator
         status_indicator = QLabel("● Online")
