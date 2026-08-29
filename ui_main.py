@@ -538,12 +538,19 @@ class RefactoryMainWindow(QMainWindow):
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction(
-            "Open Project...", self._open_project, QKeySequence("Ctrl+O")
-        )
-        file_menu.addAction("Save", self._save_file, QKeySequence("Ctrl+S"))
+        open_action = file_menu.addAction("Open Project...")
+        open_action.setShortcut(QKeySequence("Ctrl+O"))
+        open_action.triggered.connect(self._open_project)
+        
+        save_action = file_menu.addAction("Save")
+        save_action.setShortcut(QKeySequence("Ctrl+S"))
+        save_action.triggered.connect(self._save_file)
+        
         file_menu.addSeparator()
-        file_menu.addAction("Exit", self.close, QKeySequence("Ctrl+Q"))
+        
+        exit_action = file_menu.addAction("Exit")
+        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        exit_action.triggered.connect(self.close)
 
         decks_menu = menubar.addMenu("&Decks")
         decks = [
